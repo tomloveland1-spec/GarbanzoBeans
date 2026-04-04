@@ -1,5 +1,9 @@
 ---
-stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-02b-vision', 'step-02c-executive-summary', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete']
+stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-02b-vision', 'step-02c-executive-summary', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish', 'step-12-complete', 'step-e-01-discovery', 'step-e-02-review', 'step-e-03-edit']
+lastEdited: '2026-04-04'
+editHistory:
+  - date: '2026-04-04'
+    changes: 'Replaced unmeasurable visual quality NFR ("feel visually polished") with testable design system requirement'
 inputDocuments: ['_bmad-output/brainstorming/brainstorming-session-2026-04-02.md']
 workflowType: 'prd'
 classification:
@@ -396,7 +400,7 @@ Component foundation: **shadcn/ui** (React, Tailwind-based, highly customizable,
 
 ### Usability & Design Quality
 
-- The app must feel visually polished and intentional — not like a default component library installation. Visual quality is a first-class requirement, not a post-launch concern
+- The app's visual appearance is defined by a custom design system established before implementation begins, not derived from component library defaults. All components are styled against this system; default library appearances are not used in the shipped app. Visual direction is approved by Tom before any implementation phase begins.
 - All envelope state changes (traffic light colors, tooltip text) must be immediately visible after any user action without requiring a manual refresh
 - Every envelope state has a tooltip that explains why it is that color — no color is ever left unexplained
 - The "Turn the Month" ritual must be completable in under 5 minutes for an experienced user
