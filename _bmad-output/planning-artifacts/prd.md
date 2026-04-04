@@ -4,6 +4,10 @@ lastEdited: '2026-04-04'
 editHistory:
   - date: '2026-04-04'
     changes: 'Replaced unmeasurable visual quality NFR ("feel visually polished") with testable design system requirement'
+  - date: '2026-04-04'
+    changes: 'Added Compliance Scope subsection to Domain-Specific Requirements; moved compliance rationale from frontmatter into document body'
+  - date: '2026-04-04'
+    changes: 'Removed implementation leakage from FRs and NFRs: rewrote FR39, FR40, and 3 NFRs to use capability language without naming SQLite or schema migration patterns'
 inputDocuments: ['_bmad-output/brainstorming/brainstorming-session-2026-04-02.md']
 workflowType: 'prd'
 classification:
@@ -163,6 +167,7 @@ Financial data must never be silently corrupted. Wrong numbers destroy trust imm
 - **Transactional data** (transactions, envelope states, month history, savings flow) stored in **SQLite**. ACID transactions guarantee that a crash mid-write leaves the database intact, not half-written. This is a non-negotiable for a financial app.
 - **Configuration data** (merchant rules, user settings, envelope definitions, pay frequency) stored as **JSON files**. Small, rarely written, human-readable — appropriate for config.
 - The SQLite database file and JSON config files are stored together in the user's OneDrive folder and synced as a unit.
+- **Savings transaction sign convention:** Negative amounts on savings transactions represent deposits to savings (outflow from checking); positive amounts represent withdrawals from savings. This convention is enforced consistently throughout the ledger and all wealth calculations.
 
 ### Immutable History
 
@@ -175,6 +180,17 @@ A crash during OFX import, a failed OneDrive sync, or a botched month close must
 ### Privacy
 
 All data stays local. No telemetry, no crash reporting that includes financial data, no cloud sync except the user's own OneDrive folder. This is a product promise, not a compliance requirement.
+
+### Compliance Scope
+
+GarbanzoBeans is a personal finance tool — not a fintech product in the regulated sense. Standard fintech compliance frameworks do not apply:
+
+- **PCI-DSS / KYC / AML / regulated transactions:** Not applicable. The app processes no payments, connects to no banking APIs, and handles no regulated financial transactions. It is an offline ledger.
+- **Fraud prevention:** Not applicable. Single-user, offline, no payment processing — there is no transaction surface for fraud prevention to act on.
+
+**Actual security posture for a local-first personal finance app:**
+- **Encryption at rest:** Not required for MVP. The SQLite database contains personal spending data but no credentials, payment instruments, or account numbers. File-system-level encryption (BitLocker/FileVault) is the user's responsibility. This decision may be revisited post-MVP.
+- **Code signing for auto-updates:** Required. Auto-update binaries must be code-signed to prevent tampering in transit. This is a security requirement, not a compliance one.
 
 ### Schema Evolution
 
@@ -349,8 +365,8 @@ Component foundation: **shadcn/ui** (React, Tailwind-based, highly customizable,
 
 ### Savings & Wealth Tracking
 
-- **FR20:** User can designate a category as the savings category with special visual treatment
-- **FR20a:** Savings transactions use a signed model: negative amounts represent deposits to savings (outflow from checking); positive amounts represent withdrawals. This convention is consistent throughout the ledger and wealth calculations.
+- **FR20:** User can designate a category as the savings category; the savings category is displayed with a distinct visual style — separate section placement, unique color treatment, and a persistent label — that differentiates it from standard budget envelopes throughout the app.
+- **FR20a:** Savings transactions display a directional indicator (deposit or withdrawal) showing whether money moved into or out of savings, consistent throughout the ledger and wealth calculations.
 - **FR21:** User can enter a starting savings account balance as a one-time bootstrap value
 - **FR22:** System calculates and displays a financial runway metric (months of essential spending covered) based on savings balance and spending patterns
 - **FR23:** System displays the runway metric as a fuel gauge visual with color-coded zones
@@ -379,8 +395,8 @@ Component foundation: **shadcn/ui** (React, Tailwind-based, highly customizable,
 
 - **FR37:** System checks for available updates on launch and prompts the user to install if found
 - **FR38:** User can decline an update and continue using the current version
-- **FR39:** System performs all SQLite write operations atomically, rolling back on failure
-- **FR40:** System applies database schema migrations automatically on version upgrade without data loss
+- **FR39:** All data write operations complete fully or not at all; on failure, the data store remains in its last consistent state
+- **FR40:** The app upgrades its data storage format automatically on version change without data loss; failed upgrades abort cleanly
 
 ## Non-Functional Requirements
 
@@ -389,14 +405,14 @@ Component foundation: **shadcn/ui** (React, Tailwind-based, highly customizable,
 - The app launches and is fully usable within 2 seconds on a modern Windows machine (Windows 10/11, SSD, 8GB+ RAM)
 - OFX import of up to 500 transactions completes within 3 seconds
 - All user interactions (envelope state updates, ledger scroll, allocation changes) respond within 200ms
-- The app remains responsive during SQLite write operations — no UI freezes during import or month close
+- The UI remains responsive during all data persistence operations — all UI interactions during import or month close respond within 500ms
 
 ### Reliability & Data Integrity
 
-- All SQLite write operations are wrapped in transactions; any failure rolls back completely with no partial state written
+- All data write operations are atomic; any failure leaves the data store in its prior consistent state with no partial writes
 - OFX import is atomic — either all transactions from a file are committed, or none are
 - The app handles unexpected shutdown gracefully; the database must be readable and consistent on next launch
-- Schema migrations on version upgrade must complete successfully or abort without modifying existing data
+- Data format upgrades on version change complete successfully or abort without modifying existing data
 
 ### Usability & Design Quality
 
