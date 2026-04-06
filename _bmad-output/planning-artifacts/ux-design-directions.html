@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GarbanzoBeans — Design Direction Exploration v3</title>
+<style>
+  /* ── Palette Tokens ── */
+  :root {
+    --lime:        #C0F500;
+    --lime-dim:    #a8d800;
+    --lime-light:  #e8ffaa;
+    --lime-tint:   #f4ffcc;
+    --sb-logo-color: #C0F500;
+  }
+
+  /* ── Light Mode ── */
+  .theme-light {
+    --bg-app:     #F5F5F3;
+    --bg-surface: #FFFFFF;
+    --bg-sidebar: #1B3B27;
+    --bg-sidebar-hover: rgba(255,255,255,0.09);
+    --text-primary:   #0D1A09;
+    --text-secondary: #4A6840;
+    --text-sidebar:   rgba(255,255,255,0.70);
+    --text-sidebar-active: #C0F500;
+    --border:     #DDE8D4;
+    --env-green:      #C0F500;
+    --env-green-bg:   #efffb8;
+    --env-green-text: #1a3a00;
+    --env-orange:     #F5A800;
+    --env-orange-bg:  #fff3cc;
+    --env-orange-text:#6b3d00;
+    --env-red:        #e03030;
+    --env-red-bg:     #ffe4e4;
+    --env-red-text:   #7a0000;
+    --savings-color:  #86c232;
+    --gauge-track:    #ddeebb;
+    --gauge-fill:     #C0F500;
+    --gauge-red:      #e03030;
+    --gauge-orange:   #F5A800;
+    --bar-pos:        #a8d400;
+    --bar-neg:        #e03030;
+    --bar-current:    #C0F500;
+    --import-bg:      rgba(192,245,0,0.10);
+    --import-border:  rgba(192,245,0,0.30);
+    --import-text:    #2a5000;
+    --wealth-divider: #ddeebb;
+    --hover-row:      rgba(192,245,0,0.07);
+  }
+
+  /* ── Dark Forest Mode ── */
+  .theme-dark-forest {
+    --bg-app:     #111214;
+    --bg-surface: #1C1E21;
+    --bg-sidebar: #0F2218;
+    --bg-sidebar-hover: rgba(255,255,255,0.07);
+    --text-primary:   #EEEEF0;
+    --text-secondary: #888A90;
+    --text-sidebar:   rgba(255,255,255,0.65);
+    --text-sidebar-active: #C0F500;
+    --border:     #26282C;
+    --env-green:      #C0F500;
+    --env-green-bg:   rgba(192,245,0,0.13);
+    --env-green-text: #C0F500;
+    --env-orange:     #F5A800;
+    --env-orange-bg:  rgba(245,168,0,0.13);
+    --env-orange-text:#F5A800;
+    --env-red:        #ff5555;
+    --env-red-bg:     rgba(255,85,85,0.13);
+    --env-red-text:   #ff5555;
+    --savings-color:  #90d040;
+    --gauge-track:    #26282C;
+    --gauge-fill:     #C0F500;
+    --gauge-red:      #ff5555;
+    --gauge-orange:   #F5A800;
+    --bar-pos:        #90c820;
+    --bar-neg:        #ff5555;
+    --bar-current:    #C0F500;
+    --import-bg:      rgba(192,245,0,0.08);
+    --import-border:  rgba(192,245,0,0.22);
+    --import-text:    #C0F500;
+    --wealth-divider: #26282C;
+    --hover-row:      rgba(192,245,0,0.06);
+  }
+
+  /* ── Dark Neutral Mode ── */
+  .theme-dark-neutral {
+    --bg-app:     #18181a;
+    --bg-surface: #222224;
+    --bg-sidebar: #1B3B27;
+    --bg-sidebar-hover: rgba(255,255,255,0.07);
+    --text-primary:   #f0f0ec;
+    --text-secondary: #8a9a7a;
+    --text-sidebar:   rgba(255,255,255,0.65);
+    --text-sidebar-active: #C0F500;
+    --border:     #2e2e30;
+    --env-green:      #C0F500;
+    --env-green-bg:   rgba(192,245,0,0.12);
+    --env-green-text: #C0F500;
+    --env-orange:     #F5A800;
+    --env-orange-bg:  rgba(245,168,0,0.12);
+    --env-orange-text:#F5A800;
+    --env-red:        #ff5555;
+    --env-red-bg:     rgba(255,85,85,0.12);
+    --env-red-text:   #ff5555;
+    --savings-color:  #90d040;
+    --gauge-track:    #2e3030;
+    --gauge-fill:     #C0F500;
+    --gauge-red:      #ff5555;
+    --gauge-orange:   #F5A800;
+    --bar-pos:        #90c820;
+    --bar-neg:        #ff5555;
+    --bar-current:    #C0F500;
+    --import-bg:      rgba(192,245,0,0.09);
+    --import-border:  rgba(192,245,0,0.25);
+    --import-text:    #C0F500;
+    --wealth-divider: #2e2e30;
+    --hover-row:      rgba(192,245,0,0.06);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Roboto, -apple-system, sans-serif;
+    background: #0a0a0a;
+    font-size: 14px;
+  }
+
+  /* ── Showcase Shell ── */
+  .showcase-header {
+    background: #0a0a0a;
+    padding: 24px 32px 0;
+    border-bottom: 1px solid #222;
+  }
+  .showcase-eyebrow {
+    color: #C0F500;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .showcase-title {
+    color: #f0f0ec;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .showcase-desc {
+    color: rgba(240,240,236,0.45);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+
+  .tabs { display: flex; gap: 0; }
+  .tab {
+    padding: 10px 24px;
+    color: rgba(240,240,236,0.4);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    background: none;
+    border-top: none; border-left: none; border-right: none;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  .tab:hover { color: rgba(240,240,236,0.75); }
+  .tab.active { color: #C0F500; border-bottom-color: #C0F500; }
+
+  .directions { padding: 32px; }
+  .direction { display: none; }
+  .direction.active { display: block; }
+
+  .dir-header { margin-bottom: 20px; }
+  .dir-label { color: rgba(240,240,236,0.35); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+  .dir-name { color: #f0f0ec; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .dir-desc { color: rgba(240,240,236,0.5); font-size: 13px; line-height: 1.5; max-width: 640px; }
+
+  /* ── App Frame ── */
+  .app-frame {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 32px 100px rgba(0,0,0,0.7);
+    max-width: 1100px;
+  }
+
+  /* ── Titlebar ── */
+  .titlebar {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-close { background: #ff5f57; }
+  .dot-min   { background: #febc2e; }
+  .dot-max   { background: #28c840; }
+  .titlebar-text { font-size: 12px; font-weight: 500; margin-left: 8px; }
+
+  /* ── App Body ── */
+  .app-body {
+    display: flex;
+    height: 560px;
+    background: var(--bg-app);
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 210px;
+    background: var(--bg-sidebar);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
+  }
+  .sb-logo {
+    font-family: Roboto, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--sb-logo-color);
+    padding: 0 16px 16px;
+    letter-spacing: -0.01em;
+    border-bottom: 1px solid rgba(192,245,0,0.12);
+    margin-bottom: 8px;
+  }
+  .sb-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-sidebar);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .sb-item:hover { background: var(--bg-sidebar-hover); }
+  .sb-item.active { color: var(--text-sidebar-active); background: var(--bg-sidebar-hover); }
+  .sb-icon { font-size: 14px; width: 16px; text-align: center; }
+  .sb-section {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 12px 16px 4px;
+    color: rgba(255,255,255,0.35);
+  }
+
+  /* ── Main Area ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Titlebar theme ── */
+  .theme-light .titlebar { background: #0F1F14; }
+  .theme-light .titlebar-text { color: rgba(192,245,0,0.4); }
+  .theme-dark-forest .titlebar { background: #060D09; }
+  .theme-dark-forest .titlebar-text { color: rgba(192,245,0,0.3); }
+  .theme-dark-neutral .titlebar { background: #0a0a0a; }
+  .theme-dark-neutral .titlebar-text { color: rgba(240,240,236,0.3); }
+
+  /* ── Wealth Panel ── */
+  .wealth-panel {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 24px;
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-shrink: 0;
+  }
+  .wealth-divider {
+    width: 1px;
+    background: var(--wealth-divider);
+    align-self: stretch;
+  }
+  .gauge-block { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .gauge-delta { font-size: 12px; color: var(--lime); font-weight: 700; }
+
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 56px; }
+  .bar { border-radius: 2px 2px 0 0; width: 14px; }
+  .bar.pos { background: var(--bar-pos); }
+  .bar.neg { background: var(--bar-neg); }
+  .bar.cur { background: var(--bar-current); }
+  .chart-label { font-size: 10px; color: var(--text-secondary); margin-top: 4px; }
+
+  .w-metric { display: flex; flex-direction: column; gap: 3px; }
+  .w-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+  .w-value { font-family: Roboto, sans-serif; font-size: 22px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .w-sub { font-size: 12px; color: var(--lime-dim); font-weight: 600; }
+  .theme-dark-forest .w-sub,
+  .theme-dark-neutral .w-sub { color: var(--lime); }
+
+  .month-pill {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--border);
+    padding: 3px 10px;
+    border-radius: 10px;
+  }
+  .theme-dark-forest .month-pill,
+  .theme-dark-neutral .month-pill {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  /* ── Import Bar ── */
+  .import-bar {
+    padding: 7px 24px;
+    background: var(--import-bg);
+    border-bottom: 1px solid var(--import-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--import-text);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .import-pill {
+    background: var(--lime);
+    color: #0f1a03;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  /* ── Envelope List ── */
+  .env-list { flex: 1; overflow-y: auto; background: var(--bg-app); }
+  .env-group-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding: 10px 24px 4px;
+    opacity: 0.7;
+  }
+
+  /* Bordered card style */
+  .env-card {
+    display: flex;
+    align-items: center;
+    margin: 2px 14px;
+    padding: 10px 12px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    cursor: pointer;
+    gap: 10px;
+    transition: opacity 0.1s;
+  }
+  .env-card:hover { opacity: 0.85; }
+  .state-bar { width: 4px; align-self: stretch; border-radius: 2px; flex-shrink: 0; }
+  .state-bar.green  { background: var(--env-green); }
+  .state-bar.orange { background: var(--env-orange); }
+  .state-bar.red    { background: var(--env-red); }
+
+  .env-name { font-size: 13px; font-weight: 500; color: var(--text-primary); flex: 1; }
+  .env-amount { font-family: Roboto, sans-serif; font-size: 13px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  .env-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: 0.03em;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+  .badge-green  { background: var(--env-green-bg);  color: var(--env-green-text); }
+  .badge-orange { background: var(--env-orange-bg); color: var(--env-orange-text); }
+  .badge-red    { background: var(--env-red-bg);    color: var(--env-red-text); }
+
+  /* Progress bar */
+  .env-prog { width: 56px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; flex-shrink: 0; }
+  .env-prog-fill { height: 100%; border-radius: 2px; }
+  .env-prog-fill.green  { background: var(--env-green); }
+  .env-prog-fill.orange { background: var(--env-orange); }
+  .env-prog-fill.red    { background: var(--env-red); }
+
+  /* Savings card */
+  .savings-card {
+    display: flex;
+    align-items: center;
+    margin: 8px 14px 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(192,245,0,0.35);
+    background: rgba(192,245,0,0.06);
+    cursor: pointer;
+    gap: 12px;
+  }
+  .savings-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--lime);
+    margin-bottom: 2px;
+  }
+  .theme-light .savings-label { color: #3a7000; }
+  .theme-light .savings-card {
+    border-color: rgba(192,245,0,0.5);
+    background: rgba(192,245,0,0.07);
+  }
+
+  /* ── Palette Strip ── */
+  .palette-strip {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+    align-items: center;
+  }
+  .swatch {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    flex-shrink: 0;
+  }
+  .swatch-label { font-size: 11px; color: rgba(240,240,236,0.4); }
+</style>
+</head>
+<body>
+
+<div class="showcase-header">
+  <div class="showcase-eyebrow">GarbanzoBeans · Design Directions v3</div>
+  <div class="showcase-title">Dark Green Navigation · Lime #C0F500 Accent</div>
+  <div class="showcase-desc">YNAB-inspired structure — dark forest green sidebar chrome, lime as the active/funded signal. Three surface treatments.</div>
+  <div class="tabs">
+    <button class="tab active" onclick="show('light', this)">Light Mode</button>
+    <button class="tab" onclick="show('dark-forest', this)">Dark — Forest</button>
+    <button class="tab" onclick="show('dark-neutral', this)">Dark — Neutral</button>
+  </div>
+</div>
+
+<div class="directions">
+
+  <!-- ══════════════════════════════════════
+       LIGHT MODE
+  ══════════════════════════════════════ -->
+  <div class="direction active" id="dir-light">
+    <div class="dir-header">
+      <div class="dir-label">Direction 1</div>
+      <div class="dir-name">Light Mode</div>
+      <div class="dir-desc">Deep forest green sidebar (#1B3B27) on a clean off-white content area — the green analog to YNAB's #1C1F58 navy. Lime as the active state and funded signal. Serious tool energy with a distinctly green identity.</div>
+    </div>
+
+    <div class="app-frame theme-light">
+      <div class="titlebar">
+        <div class="dot dot-close"></div>
+        <div class="dot dot-min"></div>
+        <div class="dot dot-max"></div>
+        <div class="titlebar-text">GarbanzoBeans — October 2026</div>
+      </div>
+
+      <div class="app-body">
+        <div class="sidebar">
+          <div class="sb-logo">GarbanzoBeans</div>
+          <div class="sb-item active"><span class="sb-icon">◈</span> Budget</div>
+          <div class="sb-item"><span class="sb-icon">↕</span> Transactions</div>
+          <div class="sb-item"><span class="sb-icon">⊞</span> Accounts</div>
+          <div style="flex:1"></div>
+          <div class="sb-section">Tools</div>
+          <div class="sb-item"><span class="sb-icon">≡</span> Merchant Rules</div>
+          <div class="sb-item"><span class="sb-icon">⚙</span> Settings</div>
+        </div>
+
+        <div class="main">
+          <div class="wealth-panel">
+            <!-- Gauge -->
+            <div class="gauge-block">
+              <svg viewBox="0 0 140 82" width="140" height="82">
+                <path d="M15,77 A55,55 0 0,1 125,77" fill="none" stroke="#ddeebb" stroke-width="10" stroke-linecap="round"/>
+                <path d="M15,77 A55,55 0 0,1 48,28" fill="none" stroke="#e03030" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M48,28 A55,55 0 0,1 90,14" fill="none" stroke="#F5A800" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M90,14 A55,55 0 0,1 125,77" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M15,77 A55,55 0 0,1 97,17" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round"/>
+                <text x="70" y="62" text-anchor="middle" font-size="22" font-weight="700" fill="#0f1a03" font-family="Roboto">2.4</text>
+                <text x="70" y="75" text-anchor="middle" font-size="9" fill="#4A6840" font-family="Roboto">months runway</text>
+              </svg>
+              <div class="gauge-delta">↑ +0.3 this month</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="w-label">Savings Flow</div>
+              <div class="bar-chart">
+                <div class="bar pos" style="height:26px"></div>
+                <div class="bar pos" style="height:34px"></div>
+                <div class="bar neg" style="height:16px"></div>
+                <div class="bar pos" style="height:30px"></div>
+                <div class="bar pos" style="height:40px"></div>
+                <div class="bar cur" style="height:36px"></div>
+              </div>
+              <div class="chart-label">May – Oct 2026</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div class="w-metric">
+              <div class="w-label">Savings Balance</div>
+              <div class="w-value">$4,820</div>
+              <div class="w-sub">↑ $340 this month</div>
+            </div>
+
+            <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              <div class="month-pill">October 2026</div>
+              <div style="font-size:11px;color:#4A6840;text-align:right;">Available: <strong style="color:#0D1A09;">$360</strong></div>
+            </div>
+          </div>
+
+          <div class="import-bar">
+            <span class="import-pill">4</span>
+            transactions need categorization
+            <span style="margin-left:auto;text-decoration:underline;cursor:pointer;">Open queue →</span>
+          </div>
+
+          <div class="env-list">
+            <div class="env-group-label">Bills</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Rent</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:100%"></div></div>
+              <div class="env-amount">$1,500</div>
+              <div class="env-badge badge-green">Funded</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Electric</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:86%"></div></div>
+              <div class="env-amount">$95 / $110</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar orange"></div>
+              <div class="env-name">Car Insurance</div>
+              <div class="env-prog"><div class="env-prog-fill orange" style="width:0%"></div></div>
+              <div class="env-amount">$0 / $140</div>
+              <div class="env-badge badge-orange">Due Oct 22</div>
+            </div>
+
+            <div class="env-group-label">Rolling</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Groceries</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:80%"></div></div>
+              <div class="env-amount">$280 / $350</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar red"></div>
+              <div class="env-name">Dining Out</div>
+              <div class="env-prog"><div class="env-prog-fill red" style="width:100%"></div></div>
+              <div class="env-amount" style="color:var(--env-red);">−$15 over</div>
+              <div class="env-badge badge-red">Over budget</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Gas</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:50%"></div></div>
+              <div class="env-amount">$60 / $120</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Entertainment</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:37%"></div></div>
+              <div class="env-amount">$30 / $80</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+
+            <div class="savings-card">
+              <div style="flex:1">
+                <div class="savings-label">Savings</div>
+                <div class="env-name">Emergency Fund</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700;color:#3a7000;">↓ $300 deposited</div>
+                <div style="font-size:11px;color:#4A6840;margin-top:2px;">3-month streak</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="palette-strip">
+      <div class="swatch" style="background:#1B3B27;"></div>
+      <div class="swatch" style="background:#F8FAF5;"></div>
+      <div class="swatch" style="background:#ffffff;"></div>
+      <div class="swatch" style="background:#C0F500;"></div>
+      <div class="swatch" style="background:#F5A800;"></div>
+      <div class="swatch" style="background:#e03030;"></div>
+      <div style="margin-left:8px;" class="swatch-label">Sidebar · App BG · Surface · Lime (active/funded) · Caution · Danger</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       DARK FOREST
+  ══════════════════════════════════════ -->
+  <div class="direction" id="dir-dark-forest">
+    <div class="dir-header">
+      <div class="dir-label">Direction 2</div>
+      <div class="dir-name">Dark — Forest</div>
+      <div class="dir-desc">Neutral near-black app (#111214) with a deep forest green sidebar (#0F2218). The green identity lives only in the chrome — the canvas is colorless so lime, orange, and red state signals read with full clarity.</div>
+    </div>
+
+    <div class="app-frame theme-dark-forest">
+      <div class="titlebar">
+        <div class="dot dot-close"></div>
+        <div class="dot dot-min"></div>
+        <div class="dot dot-max"></div>
+        <div class="titlebar-text">GarbanzoBeans — October 2026</div>
+      </div>
+
+      <div class="app-body">
+        <div class="sidebar">
+          <div class="sb-logo">GarbanzoBeans</div>
+          <div class="sb-item active"><span class="sb-icon">◈</span> Budget</div>
+          <div class="sb-item"><span class="sb-icon">↕</span> Transactions</div>
+          <div class="sb-item"><span class="sb-icon">⊞</span> Accounts</div>
+          <div style="flex:1"></div>
+          <div class="sb-section">Tools</div>
+          <div class="sb-item"><span class="sb-icon">≡</span> Merchant Rules</div>
+          <div class="sb-item"><span class="sb-icon">⚙</span> Settings</div>
+        </div>
+
+        <div class="main">
+          <div class="wealth-panel">
+            <div class="gauge-block">
+              <svg viewBox="0 0 140 82" width="140" height="82">
+                <path d="M15,77 A55,55 0 0,1 125,77" fill="none" stroke="#1A2E1E" stroke-width="10" stroke-linecap="round"/>
+                <path d="M15,77 A55,55 0 0,1 48,28" fill="none" stroke="#ff5555" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M48,28 A55,55 0 0,1 90,14" fill="none" stroke="#F5A800" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M90,14 A55,55 0 0,1 125,77" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M15,77 A55,55 0 0,1 97,17" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round"/>
+                <text x="70" y="62" text-anchor="middle" font-size="22" font-weight="700" fill="#EEEEF0" font-family="Roboto">2.4</text>
+                <text x="70" y="75" text-anchor="middle" font-size="9" fill="#888A90" font-family="Roboto">months runway</text>
+              </svg>
+              <div class="gauge-delta">↑ +0.3 this month</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="w-label">Savings Flow</div>
+              <div class="bar-chart">
+                <div class="bar pos" style="height:26px"></div>
+                <div class="bar pos" style="height:34px"></div>
+                <div class="bar neg" style="height:16px"></div>
+                <div class="bar pos" style="height:30px"></div>
+                <div class="bar pos" style="height:40px"></div>
+                <div class="bar cur" style="height:36px"></div>
+              </div>
+              <div class="chart-label">May – Oct 2026</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div class="w-metric">
+              <div class="w-label">Savings Balance</div>
+              <div class="w-value">$4,820</div>
+              <div class="w-sub">↑ $340 this month</div>
+            </div>
+
+            <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              <div class="month-pill">October 2026</div>
+              <div style="font-size:11px;color:#888A90;text-align:right;">Available: <strong style="color:#C0F500;">$360</strong></div>
+            </div>
+          </div>
+
+          <div class="import-bar">
+            <span class="import-pill">4</span>
+            transactions need categorization
+            <span style="margin-left:auto;text-decoration:underline;cursor:pointer;">Open queue →</span>
+          </div>
+
+          <div class="env-list">
+            <div class="env-group-label">Bills</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Rent</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:100%"></div></div>
+              <div class="env-amount">$1,500</div>
+              <div class="env-badge badge-green">Funded</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Electric</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:86%"></div></div>
+              <div class="env-amount">$95 / $110</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar orange"></div>
+              <div class="env-name">Car Insurance</div>
+              <div class="env-prog"><div class="env-prog-fill orange" style="width:0%"></div></div>
+              <div class="env-amount">$0 / $140</div>
+              <div class="env-badge badge-orange">Due Oct 22</div>
+            </div>
+
+            <div class="env-group-label">Rolling</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Groceries</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:80%"></div></div>
+              <div class="env-amount">$280 / $350</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar red"></div>
+              <div class="env-name">Dining Out</div>
+              <div class="env-prog"><div class="env-prog-fill red" style="width:100%"></div></div>
+              <div class="env-amount" style="color:var(--env-red);">−$15 over</div>
+              <div class="env-badge badge-red">Over budget</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Gas</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:50%"></div></div>
+              <div class="env-amount">$60 / $120</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Entertainment</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:37%"></div></div>
+              <div class="env-amount">$30 / $80</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+
+            <div class="savings-card">
+              <div style="flex:1">
+                <div class="savings-label">Savings</div>
+                <div class="env-name">Emergency Fund</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700;color:#C0F500;">↓ $300 deposited</div>
+                <div style="font-size:11px;color:#888A90;margin-top:2px;">3-month streak</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="palette-strip">
+      <div class="swatch" style="background:#0F2218;"></div>
+      <div class="swatch" style="background:#111214;"></div>
+      <div class="swatch" style="background:#1C1E21;"></div>
+      <div class="swatch" style="background:#C0F500;"></div>
+      <div class="swatch" style="background:#F5A800;"></div>
+      <div class="swatch" style="background:#ff5555;"></div>
+      <div style="margin-left:8px;" class="swatch-label">Sidebar · App BG · Surface · Lime (active/funded) · Caution · Danger</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       DARK NEUTRAL
+  ══════════════════════════════════════ -->
+  <div class="direction" id="dir-dark-neutral">
+    <div class="dir-header">
+      <div class="dir-label">Direction 3</div>
+      <div class="dir-name">Dark — Neutral</div>
+      <div class="dir-desc">Same dark green sidebar (#1B3B27) but with a slightly lighter neutral surface (#18181A). Compared to Dark Forest, the lighter background makes card surfaces more distinct — more contrast between content levels.</div>
+    </div>
+
+    <div class="app-frame theme-dark-neutral">
+      <div class="titlebar">
+        <div class="dot dot-close"></div>
+        <div class="dot dot-min"></div>
+        <div class="dot dot-max"></div>
+        <div class="titlebar-text">GarbanzoBeans — October 2026</div>
+      </div>
+
+      <div class="app-body">
+        <div class="sidebar">
+          <div class="sb-logo">GarbanzoBeans</div>
+          <div class="sb-item active"><span class="sb-icon">◈</span> Budget</div>
+          <div class="sb-item"><span class="sb-icon">↕</span> Transactions</div>
+          <div class="sb-item"><span class="sb-icon">⊞</span> Accounts</div>
+          <div style="flex:1"></div>
+          <div class="sb-section">Tools</div>
+          <div class="sb-item"><span class="sb-icon">≡</span> Merchant Rules</div>
+          <div class="sb-item"><span class="sb-icon">⚙</span> Settings</div>
+        </div>
+
+        <div class="main">
+          <div class="wealth-panel">
+            <div class="gauge-block">
+              <svg viewBox="0 0 140 82" width="140" height="82">
+                <path d="M15,77 A55,55 0 0,1 125,77" fill="none" stroke="#2e3030" stroke-width="10" stroke-linecap="round"/>
+                <path d="M15,77 A55,55 0 0,1 48,28" fill="none" stroke="#ff5555" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M48,28 A55,55 0 0,1 90,14" fill="none" stroke="#F5A800" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M90,14 A55,55 0 0,1 125,77" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+                <path d="M15,77 A55,55 0 0,1 97,17" fill="none" stroke="#C0F500" stroke-width="10" stroke-linecap="round"/>
+                <text x="70" y="62" text-anchor="middle" font-size="22" font-weight="700" fill="#f0f0ec" font-family="Roboto">2.4</text>
+                <text x="70" y="75" text-anchor="middle" font-size="9" fill="#8a9a7a" font-family="Roboto">months runway</text>
+              </svg>
+              <div class="gauge-delta">↑ +0.3 this month</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="w-label">Savings Flow</div>
+              <div class="bar-chart">
+                <div class="bar pos" style="height:26px"></div>
+                <div class="bar pos" style="height:34px"></div>
+                <div class="bar neg" style="height:16px"></div>
+                <div class="bar pos" style="height:30px"></div>
+                <div class="bar pos" style="height:40px"></div>
+                <div class="bar cur" style="height:36px"></div>
+              </div>
+              <div class="chart-label">May – Oct 2026</div>
+            </div>
+
+            <div class="wealth-divider"></div>
+
+            <div class="w-metric">
+              <div class="w-label">Savings Balance</div>
+              <div class="w-value">$4,820</div>
+              <div class="w-sub">↑ $340 this month</div>
+            </div>
+
+            <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+              <div class="month-pill">October 2026</div>
+              <div style="font-size:11px;color:#8a9a7a;text-align:right;">Available: <strong style="color:#C0F500;">$360</strong></div>
+            </div>
+          </div>
+
+          <div class="import-bar">
+            <span class="import-pill">4</span>
+            transactions need categorization
+            <span style="margin-left:auto;text-decoration:underline;cursor:pointer;">Open queue →</span>
+          </div>
+
+          <div class="env-list">
+            <div class="env-group-label">Bills</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Rent</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:100%"></div></div>
+              <div class="env-amount">$1,500</div>
+              <div class="env-badge badge-green">Funded</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Electric</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:86%"></div></div>
+              <div class="env-amount">$95 / $110</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar orange"></div>
+              <div class="env-name">Car Insurance</div>
+              <div class="env-prog"><div class="env-prog-fill orange" style="width:0%"></div></div>
+              <div class="env-amount">$0 / $140</div>
+              <div class="env-badge badge-orange">Due Oct 22</div>
+            </div>
+
+            <div class="env-group-label">Rolling</div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Groceries</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:80%"></div></div>
+              <div class="env-amount">$280 / $350</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar red"></div>
+              <div class="env-name">Dining Out</div>
+              <div class="env-prog"><div class="env-prog-fill red" style="width:100%"></div></div>
+              <div class="env-amount" style="color:var(--env-red);">−$15 over</div>
+              <div class="env-badge badge-red">Over budget</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Gas</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:50%"></div></div>
+              <div class="env-amount">$60 / $120</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+            <div class="env-card">
+              <div class="state-bar green"></div>
+              <div class="env-name">Entertainment</div>
+              <div class="env-prog"><div class="env-prog-fill green" style="width:37%"></div></div>
+              <div class="env-amount">$30 / $80</div>
+              <div class="env-badge badge-green">On track</div>
+            </div>
+
+            <div class="savings-card">
+              <div style="flex:1">
+                <div class="savings-label">Savings</div>
+                <div class="env-name">Emergency Fund</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700;color:#C0F500;">↓ $300 deposited</div>
+                <div style="font-size:11px;color:#8a9a7a;margin-top:2px;">3-month streak</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="palette-strip">
+      <div class="swatch" style="background:#1B3B27;"></div>
+      <div class="swatch" style="background:#18181a;"></div>
+      <div class="swatch" style="background:#222224;"></div>
+      <div class="swatch" style="background:#C0F500;"></div>
+      <div class="swatch" style="background:#F5A800;"></div>
+      <div class="swatch" style="background:#ff5555;"></div>
+      <div style="margin-left:8px;" class="swatch-label">Sidebar · App BG · Surface · Lime (active/funded) · Caution · Danger</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function show(id, el) {
+  document.querySelectorAll('.direction').forEach(d => d.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('dir-' + id).classList.add('active');
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>

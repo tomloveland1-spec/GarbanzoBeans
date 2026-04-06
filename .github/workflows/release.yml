@@ -1,0 +1,15 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Release pipeline implemented in Story 1.9
+# Placeholder only — do not run
+jobs:
+  build:
+    if: false
+    runs-on: windows-latest
+    steps:
+      - run: echo "Release pipeline stub — implemented in Story 1.9"

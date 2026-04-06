@@ -1,0 +1,105 @@
+# generated: 2026-04-04
+# last_updated: 2026-04-04
+# project: GarbanzoBeans
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-04
+last_updated: 2026-04-06  # 1-5 → done (review complete)
+project: GarbanzoBeans
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # ── Epic 1: App Foundation — A Launchable, Beautiful Shell ──
+  epic-1: in-progress
+  1-1-project-scaffold-running-tauri-react-app: done
+  1-2-design-system-foundation-dark-forest-token-set: done
+  1-3-sqlite-infrastructure-database-migrations-and-atomic-writes: done
+  1-4-app-state-foundation-zustand-stores-tanstack-router: done
+  1-5-onboarding-first-launch-setup: done
+  1-6-settings-screen-update-configuration-anytime: backlog
+  1-7-sentinel-lock-read-only-mode: backlog
+  1-8-auto-update-with-user-confirmation: backlog
+  1-9-release-pipeline-cicd-and-code-signing: backlog
+  epic-1-retrospective: optional
+
+  # ── Epic 2: Envelope Budgeting — A Budget Tom Can Actually See ──
+  epic-2: backlog
+  2-1-envelope-schema-data-model: backlog
+  2-2-create-and-manage-envelopes: backlog
+  2-3-envelope-state-logic-traffic-lights-tooltips: backlog
+  2-4-envelope-allocation-monthly-planning-session: backlog
+  2-5-borrow-flow-covering-a-shortfall: backlog
+  epic-2-retrospective: optional
+
+  # ── Epic 3: OFX Import & Ledger — Real Transactions, Real Balances ──
+  epic-3: backlog
+  3-1-transaction-schema-data-model: backlog
+  3-2-ofx-import-file-ingestion-and-atomic-commit: backlog
+  3-3-dual-balance-ledger-view: backlog
+  3-4-auto-match-clearing-imported-transactions: backlog
+  3-5-manual-transaction-entry-and-editing: backlog
+  epic-3-retrospective: optional
+
+  # ── Epic 4: Merchant Rules & Smart Categorization — The App Learns Tom's Life ──
+  epic-4: backlog
+  4-1-merchant-rules-schema-data-model: backlog
+  4-2-auto-categorization-on-import: backlog
+  4-3-unknown-merchant-queue-manual-categorization: backlog
+  4-4-substring-rule-builder-creating-rules-inline: backlog
+  4-5-rule-application-forward-only-on-future-imports: backlog
+  4-6-merchant-rules-screen-view-edit-delete: backlog
+  epic-4-retrospective: optional
+
+  # ── Epic 5: Savings & Wealth Tracking — Runway Always in View ──
+  epic-5: backlog
+  5-1-savings-schema-two-metric-data-model: backlog
+  5-2-savings-category-distinct-visual-treatment: backlog
+  5-3-savings-balance-bootstrap-and-reconciliation: backlog
+  5-4-runway-metric-derive-and-display: backlog
+  5-5-arc-gauge-runway-visualized: backlog
+  5-6-savings-flow-chart-monthly-trend: backlog
+  5-7-wealth-panel-persistent-on-main-screen: backlog
+  epic-5-retrospective: optional
+
+  # ── Epic 6: Turn the Month — The Monthly Ceremony ──
+  epic-6: backlog
+  6-1-month-lifecycle-schema-state-machine: backlog
+  6-2-turn-the-month-mode-gate: backlog
+  6-3-closeout-summary-last-month-in-review: backlog
+  6-4-bill-date-confirmation: backlog
+  6-5-income-timing-confirmation: backlog
+  6-6-guided-envelope-fill-opening-the-new-month: backlog
+  epic-6-retrospective: optional

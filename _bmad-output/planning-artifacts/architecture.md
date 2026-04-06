@@ -1,10 +1,13 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5, 6]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments: ['_bmad-output/planning-artifacts/prd.md', '_bmad-output/planning-artifacts/prd-validation-report.md']
 workflowType: 'architecture'
 project_name: 'GarbanzoBeans'
 user_name: 'Tom'
 date: '2026-04-04'
+lastStep: 8
+status: 'complete'
+completedAt: '2026-04-04'
 ---
 
 # Architecture Decision Document
@@ -798,3 +801,137 @@ OFX File (user filesystem)
 5. `useMonthStore` hydrates — checks month status (`closing:*` → route to Turn the Month)
 6. TanStack Router applies guards — redirects to `/onboarding` or `/turn-the-month` if needed
 7. Normal app renders
+
+---
+
+## Architecture Validation Results
+
+### Coherence Validation ✅
+
+**Decision Compatibility:**
+All 6 technology layers are version-compatible and confirmed to work together as of 2026-04-04: Tauri v2.10.3 + React 19 + Vite + Tailwind v4 + shadcn/ui + tauri-plugin-sql v2.3.2. TanStack Router and Zustand are both React 19-compatible. Recharts works as a standard React component library. Azure Trusted Signing integrates natively with GitHub Actions. No version conflicts detected.
+
+**Pattern Consistency:**
+The three-layer pattern (Component → Store → Tauri) is uniformly applied across all six feature domains. The `isWriting` flag + optimistic update + rollback pattern is specified once and referenced consistently. Error handling (inline only, never modal) is enforced via the store's per-operation error fields. The savings sign convention is explicitly enforced at three independent layers (SQLite schema comment, Rust assert, TypeScript constant) — no single point of failure. Naming conventions (snake_case SQL, camelCase TS, PascalCase components, kebab-case feature folders) have no overlaps or contradictions.
+
+**Structure Alignment:**
+The feature folder structure mirrors the Zustand domain slice structure which mirrors the Rust command domain structure — all three layers are isomorphic. `src/lib/` pure functions are correctly isolated with zero side effects. The `db/` subsystem cleanly separates `connection.rs`, `migrations.rs`, and `sentinel.rs` concerns. The E2E split (Playwright for UI against Vite, WebdriverIO for integration against built binary) matches the testing rationale.
+
+---
+
+### Requirements Coverage Validation ✅
+
+**Functional Requirements (7 categories, 40 FRs):**
+
+| FR Category | Architectural Coverage |
+|---|---|
+| FR1–5: Transactions & Import | `features/transactions/` + `commands/transactions.rs` + `parseOFX.ts` + `OFXImporter.tsx` |
+| FR6–11: Merchant Rules | `features/merchant-rules/` + `commands/merchant_rules.rs` + risk register risk 4 (rule versioning, conflict detection) |
+| FR12–19: Envelope Budgeting | `features/envelopes/` + `commands/envelopes.rs` + `deriveEnvelopeState.ts` + `getEnvelopeStateExplanation.ts` |
+| FR20–25: Savings & Wealth | `features/savings/` + `commands/savings.rs` + ADR-6 (two metrics) + `deriveRunway.ts` + Recharts arc gauge + bar chart |
+| FR26–31: Monthly Planning & TTM | `features/turn-the-month/` + `commands/months.rs` + ADR-4 (state machine + crash recovery) |
+| FR32–36: Onboarding & Config | `features/settings/` + `commands/settings.rs` + `OnboardingFlow.tsx` |
+| FR37–40: App Infrastructure | `db/connection.rs` (WAL, integrity_check) + `db/migrations.rs` + `.github/workflows/release.yml` (updater) |
+
+All 40 FRs have clear architectural homes.
+
+**Non-Functional Requirements:**
+
+- **Performance** (2s launch / 3s OFX import / 200ms UI): WAL mode removes read/write lock contention; optimistic updates eliminate round-trip latency for UI interactions; derived values computed in JS without extra Tauri round-trips. Achievable.
+- **Reliability** (atomic writes, crash recovery, abort-safe migration): All SQLite writes in Tauri commands (atomic by construction); `closing:step-N` sub-state for crash recovery; migration runner aborts without modifying data. All three covered.
+- **Design Quality** (custom design system pre-approved): Enforced procedurally — `getEnvelopeStateExplanation()` authored before components; design system decision documented.
+- **Privacy** (zero outbound data during normal operation): Architecture has no server, no telemetry path, single network call is `tauri-plugin-updater`. Covered.
+- **Portability** (single-folder portability): SQLite single-file + sentinel lock design. Covered.
+
+---
+
+### Implementation Readiness Validation ✅
+
+**Decision Completeness:**
+All 6 ADRs include rationale. Package versions are pinned (date-stamped). The implementation sequence (8 steps) provides a concrete bootstrap order. Critical decision: financial amounts as INTEGER cents — documented with working and anti-pattern code examples.
+
+**Structure Completeness:**
+Every directory and file in the project tree is named and annotated with its purpose. The tree covers frontend, Rust backend, E2E tests, CI/CD workflows, and config files. Nothing is left as "TBD folder." Requirements-to-structure mapping table connects all 7 FR categories to file locations.
+
+**Pattern Completeness:**
+8 conflict-prone areas are explicitly addressed: financial storage, SQLite naming, Tauri error shapes, store-vs-direct invoke, date formats, file naming, test location, component responsibility. Each has a CORRECT / WRONG code example pair. Anti-patterns section is a concrete forbidden list.
+
+---
+
+### Gap Analysis Results
+
+**Critical Gaps: None**
+
+**Important Gaps:**
+
+1. **OFX auto-match algorithm location (FR4)** — The architecture establishes `parseOFX.ts` for parsing and `merchant_rules.rs` for rule application, but the function that matches parsed transactions against the rules table during import is not explicitly named or located. Suggested placement: a `matchTransactions.ts` pure function in `src/lib/`, called from `useTransactionStore.importOFX()` after receiving the `ImportResult` from Tauri. This fits existing patterns; no new patterns required.
+
+2. **Update endpoint URL not documented** — `tauri-plugin-updater` requires a configured update manifest URL in `tauri.conf.json`. The architecture confirms GitHub Releases as the host but does not specify the `endpoints` value format. Agents will need: `https://github.com/{owner}/{repo}/releases/latest/download/update-manifest.json` when configuring `tauri.conf.json`.
+
+**Nice-to-Have Gaps:**
+
+- **Initial schema SQL sketch** — `001_initial_schema.sql` is referenced but not sketched. A table list with column types in the architecture doc would give agents a canonical reference. Not blocking — agents will derive this from ADRs and type files.
+
+---
+
+### Architecture Completeness Checklist
+
+**✅ Requirements Analysis**
+- [x] Project context thoroughly analyzed
+- [x] Scale and complexity assessed
+- [x] Technical constraints identified
+- [x] Cross-cutting concerns mapped (8 areas)
+
+**✅ Architectural Decisions**
+- [x] Critical decisions documented with rationale (ADR-1 through ADR-6)
+- [x] Technology stack fully specified with versions
+- [x] Integration patterns defined (IPC command list)
+- [x] Performance considerations addressed
+
+**✅ Implementation Patterns**
+- [x] Naming conventions established (SQL, Rust, TypeScript, feature folders)
+- [x] Structure patterns defined (test co-location, shared utilities, E2E separation)
+- [x] Communication patterns specified (Component → Store → Tauri, isWriting flag)
+- [x] Process patterns documented (error handling, loading states, sign convention enforcement)
+
+**✅ Project Structure**
+- [x] Complete directory structure defined (annotated file tree)
+- [x] Component boundaries established (3 boundary types: Rust/React, Store/Component, Pure Function)
+- [x] Integration points mapped (data flow diagram, launch sequence)
+- [x] Requirements to structure mapping complete
+
+---
+
+### Architecture Readiness Assessment
+
+**Overall Status: READY FOR IMPLEMENTATION**
+
+**Confidence Level: High** — all 40 FRs are architecturally supported, no contradictions exist across 6 ADRs, and implementation patterns are specific enough to prevent agent drift on the 8 highest-risk conflict points.
+
+**Key Strengths:**
+- The three-layer isomorphism (feature folder = Zustand store = Rust command domain) makes navigation predictable for any agent working on any feature
+- INTEGER cents + CHECK constraint + sign convention enforced at 3 layers is unusually robust for a financial app
+- ADR-4 (`closing:step-N` sub-state) is a non-obvious crash recovery pattern, well-documented and rationale-explained
+- Anti-patterns section with CORRECT/WRONG code examples is highly actionable for AI agents
+
+**Areas for Future Enhancement:**
+- Post-MVP: macOS CI workflow addition (Tauri already cross-platform, just CI wiring needed)
+- Post-MVP: EV certificate upgrade if SmartScreen reputation requires it
+- Post-MVP: E2E test expansion beyond critical integration scenarios
+- Encryption at rest (deferred per PRD)
+
+### Implementation Handoff
+
+**AI Agent Guidelines:**
+- Follow all architectural decisions exactly as documented
+- Use implementation patterns consistently across all components
+- Respect project structure and boundaries
+- Refer to this document for all architectural questions
+- When in doubt on money: INTEGER cents, never REAL
+- When in doubt on data access: store action, never direct invoke
+
+**First Implementation Priority:**
+```bash
+npm create tauri-app@latest garbanzobeans -- --template react-ts
+```
+Then: Tailwind v4 → shadcn/ui → SQLite plugin → migration runner → initial schema.

@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+/* ─── Roboto loaded via <link> in index.html ─── */
+
+/* ─── Dark Forest Design Tokens ─── */
+@theme {
+  --color-bg-app: #111214;
+  --color-bg-surface: #1C1E21;
+  --color-bg-sidebar: #0F2218;
+  --color-text-primary: #EEEEF0;
+  --color-text-secondary: #888A90;
+  --color-border: #26282C;
+  --color-sidebar-text: rgba(255, 255, 255, 0.65);
+  --color-sidebar-active: #C0F500;
+  --color-sidebar-hover: rgba(255, 255, 255, 0.07);
+  --color-envelope-green: #C0F500;
+  --color-envelope-green-bg: rgba(192, 245, 0, 0.13);
+  --color-envelope-orange: #F5A800;
+  --color-envelope-orange-bg: rgba(245, 168, 0, 0.13);
+  --color-envelope-red: #ff5555;
+  --color-envelope-red-bg: rgba(255, 85, 85, 0.13);
+  --color-savings-positive: #90c820;
+  --color-savings-negative: #ff5555;
+  --color-runway-healthy: #C0F500;
+  --color-runway-caution: #F5A800;
+  --color-runway-critical: #ff5555;
+  --color-gauge-track: #26282C;
+  --color-interactive: #C0F500;
+  --color-lime: #C0F500;
+  --color-amber: #F5A800;
+  --color-red: #ff5555;
+  --color-forest-deep: #0F2218;
+  --color-neutral-black: #111214;
+  --color-neutral-surface: #1C1E21;
+
+  /* shadcn/ui slot variables — mapped to Dark Forest tokens */
+  --background: #111214;
+  --foreground: #EEEEF0;
+  --card: #1C1E21;
+  --card-foreground: #EEEEF0;
+  --popover: #1C1E21;
+  --popover-foreground: #EEEEF0;
+  --primary: #C0F500;
+  --primary-foreground: #111214;
+  --secondary: #1C1E21;
+  --secondary-foreground: #EEEEF0;
+  --muted: #1C1E21;
+  --muted-foreground: #888A90;
+  --accent: #1C1E21;
+  --accent-foreground: #EEEEF0;
+  --destructive: #ff5555;
+  --border: #26282C;
+  --input: #26282C;
+  --ring: #C0F500;
+  --radius: 0.5rem;
+  --sidebar: #0F2218;
+  --sidebar-foreground: rgba(255, 255, 255, 0.65);
+  --sidebar-border: #26282C;
+}
+
+/* ─── Base Reset & Global Styles ─── */
+@layer base {
+  * {
+    border-color: var(--color-border);
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: var(--color-bg-app);
+    color: var(--color-text-primary);
+    font-family: 'Roboto', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.2;
+  }
+
+  /* Global focus ring — content area */
+  :focus-visible {
+    outline: 2px solid #C0F500;
+    outline-offset: 2px;
+  }
+}
+
+/* ─── Typography Scale ─── */
+@layer utilities {
+  .type-display {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .type-h1 {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .type-h2 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .type-body {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .type-label {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  .type-caption {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  /* Sidebar interactive focus ring override */
+  .sidebar-interactive:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+  }
+}

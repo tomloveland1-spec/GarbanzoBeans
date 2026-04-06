@@ -1,6 +1,6 @@
 type,name,module,path,hash
 "csv","agent-manifest","_config","_config/agent-manifest.csv","6e95f4c8c60e48bc95346372850291506534bba082a8f9dca5eed4b5f2d6431a"
-"yaml","manifest","_config","_config/manifest.yaml","8ff1d302bb288a9053500f04f7d9f83d774930ecee653612b82fa84469cef3ff"
+"yaml","manifest","_config","_config/manifest.yaml","c5a5559eb5f5ffa2337197ef7a0409a0dc3a113b4454a46f87f5069a32d9079c"
 "csv","documentation-requirements","bmm","bmm/1-analysis/bmad-document-project/documentation-requirements.csv","d1253b99e88250f2130516b56027ed706e643bfec3d99316727a4c6ec65c6c1d"
 "csv","domain-complexity","bmm","bmm/2-plan-workflows/bmad-create-prd/data/domain-complexity.csv","f775f09fb4dc1b9214ca22db4a3994ce53343d976d7f6e5384949835db6d2770"
 "csv","domain-complexity","bmm","bmm/2-plan-workflows/bmad-validate-prd/data/domain-complexity.csv","f775f09fb4dc1b9214ca22db4a3994ce53343d976d7f6e5384949835db6d2770"
@@ -231,7 +231,7 @@ type,name,module,path,hash
 "yaml","bmad-skill-manifest","bmm","bmm/4-implementation/bmad-agent-qa/bmad-skill-manifest.yaml","00e680311146df8b7e4f1da1ecf88ff7c6da87049becb3551139f83fca1a3563"
 "yaml","bmad-skill-manifest","bmm","bmm/4-implementation/bmad-agent-quick-flow-solo-dev/bmad-skill-manifest.yaml","6c3c47eb61554b1d8cd9ccdf202ffff2f20bb8ab7966356ae82825dc2ae3171f"
 "yaml","bmad-skill-manifest","bmm","bmm/4-implementation/bmad-agent-sm/bmad-skill-manifest.yaml","ac92ed5eb5dd6e2975fc9a2170ef2c6d917872521979d349ec5f5a14e323dbf6"
-"yaml","config","bmm","bmm/config.yaml","ead4b0665c00fb7479f33f0a8c9e2bf8ef80893a14fd82223499d29111e8cf37"
+"yaml","config","bmm","bmm/config.yaml","e9a305f911173b93d13c2f57faf74847dbb0f050a0e18524add4df334b2d74ca"
 "yaml","sprint-status-template","bmm","bmm/4-implementation/bmad-sprint-planning/sprint-status-template.yaml","b46a7bfb7d226f00bd064f111e527eee54ad470d177382a9a15f1a6dde21544c"
 "csv","brain-methods","core","core/bmad-brainstorming/brain-methods.csv","0ab5878b1dbc9e3fa98cb72abfc3920a586b9e2b42609211bb0516eefd542039"
 "csv","methods","core","core/bmad-advanced-elicitation/methods.csv","e08b2e22fec700274982e37be608d6c3d1d4d0c04fa0bae05aa9dba2454e6141"
@@ -271,5 +271,5 @@ type,name,module,path,hash
 "py","bmad_init","core","core/bmad-init/scripts/bmad_init.py","1b09aaadd599d12ba11bd61e86cb9ce7ce85e2d83f725ad8567b99ff00cbceeb"
 "py","test_analyze_sources","core","core/bmad-distillator/scripts/tests/test_analyze_sources.py","d90525311f8010aaf8d7d9212a370468a697866190bae78c35d0aae9b7f23fdf"
 "py","test_bmad_init","core","core/bmad-init/scripts/tests/test_bmad_init.py","84daa73b4e6adf4adbf203081a570b16859e090104a554ae46a295c9af3cb9bb"
-"yaml","config","core","core/config.yaml","6ee090c1edcc43e21a259c2b74e2ef014a88727a11ca99a3e1860c745d96b673"
+"yaml","config","core","core/config.yaml","9ca4467c1c4046c1dacfe2700051c6c3fafba5f07b68fce2f0e710ff28a51dd1"
 "yaml","core-module","core","core/bmad-init/resources/core-module.yaml","eff85de02831f466e46a6a093d860642220295556a09c59e1b7f893950a6cdc9"
