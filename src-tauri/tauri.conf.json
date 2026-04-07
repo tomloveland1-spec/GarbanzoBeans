@@ -20,7 +20,16 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/tomloveland1-spec/GarbanzoBeans/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxMjRFNjk1RTI3QTY2NjAKUldSZ1pucmlsZVlrc1c1UXNrZWdmRFpTb01yVVJFamluTFNneVBXQkZVZHlzem1lclJnWlUyR0kK"
     }
   },
   "bundle": {

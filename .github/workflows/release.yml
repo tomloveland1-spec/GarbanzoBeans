@@ -5,11 +5,94 @@ on:
     tags:
       - "v*"
 
-# Release pipeline implemented in Story 1.9
-# Placeholder only — do not run
+permissions:
+  contents: write
+
 jobs:
-  build:
-    if: false
+  build-and-release:
     runs-on: windows-latest
     steps:
-      - run: echo "Release pipeline stub — implemented in Story 1.9"
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and publish Tauri release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "GarbanzoBeans ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+
+      - name: Azure Trusted Signing
+        uses: azure/trusted-signing-action@v0.5
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          files-folder: src-tauri/target/release/bundle/nsis
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+  integration-tests:
+    runs-on: windows-latest
+    needs: build-and-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver
+
+      - name: Download built binary
+        run: gh release download ${{ github.ref_name }} --pattern "*.exe" --dir target-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Seed test data folder
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\garbanzobeans-test-data"
+          # Copy pre-built fixture database (onboarding complete, data_folder_path set)
+          Copy-Item "e2e-integration\fixtures\test.db" "$env:RUNNER_TEMP\garbanzobeans-test-data\garbanzobeans.db"
+        shell: pwsh
+
+      - name: Run WebdriverIO integration tests
+        run: npm run test:e2e:integration
+        env:
+          TEST_DATA_FOLDER: ${{ runner.temp }}\garbanzobeans-test-data
+          TAURI_BINARY_PATH: target-release/garbanzobeans_*.exe

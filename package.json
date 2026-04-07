@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e:ui": "playwright test"
+    "test:e2e:ui": "playwright test",
+    "test:e2e:integration": "wdio run wdio.conf.ts",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -24,6 +26,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.7.0",
@@ -33,6 +37,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.50.0",
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/router-devtools": "^1.166.11",
@@ -40,14 +45,23 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@wdio/cli": "^9.27.0",
+    "@wdio/mocha-framework": "^9.27.0",
+    "@wdio/spec-reporter": "^9.27.0",
+    "eslint": "^10.2.0",
+    "globals": "^17.4.0",
     "jsdom": "^26.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "webdriverio": "^9.27.0"
   }
 }
