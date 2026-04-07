@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-06  # 1-5 → done; 1-6 → done; 1-7 → done; 1-8 → done; 1-9 → done
+last_updated: 2026-04-06  # story 2-2 done
 project: GarbanzoBeans
 project_key: NOKEY
 tracking_system: file-system
@@ -56,9 +56,9 @@ development_status:
   epic-1-retrospective: optional
 
   # ── Epic 2: Envelope Budgeting — A Budget Tom Can Actually See ──
-  epic-2: backlog
-  2-1-envelope-schema-data-model: backlog
-  2-2-create-and-manage-envelopes: backlog
+  epic-2: in-progress
+  2-1-envelope-schema-data-model: done
+  2-2-create-and-manage-envelopes: done
   2-3-envelope-state-logic-traffic-lights-tooltips: backlog
   2-4-envelope-allocation-monthly-planning-session: backlog
   2-5-borrow-flow-covering-a-shortfall: backlog

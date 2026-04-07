@@ -36,3 +36,37 @@ export interface UpsertSettingsInput {
   dataFolderPath?: string | null;
   onboardingComplete?: boolean;
 }
+
+// Envelope domain types — mirrors Rust Envelope struct in commands/mod.rs
+export type EnvelopeType = 'Rolling' | 'Bill' | 'Goal';
+export type EnvelopePriority = 'Need' | 'Should' | 'Want';
+
+export interface Envelope {
+  id: number;
+  name: string;
+  type: EnvelopeType;
+  priority: EnvelopePriority;
+  allocatedCents: number;   // INTEGER cents — never display directly; use formatCurrency()
+  monthId: number | null;
+  createdAt: string;        // ISO 8601 UTC
+}
+
+// Input for create_envelope Tauri command.
+// envelopeType maps to envelope_type in Rust via serde rename_all camelCase.
+export interface CreateEnvelopeInput {
+  name: string;
+  envelopeType: EnvelopeType;
+  priority: EnvelopePriority;
+  allocatedCents: number;
+  monthId?: number | null;
+}
+
+// Input for update_envelope Tauri command. All fields except id are optional.
+export interface UpdateEnvelopeInput {
+  id: number;
+  name?: string;
+  envelopeType?: EnvelopeType;
+  priority?: EnvelopePriority;
+  allocatedCents?: number;
+  monthId?: number | null;
+}

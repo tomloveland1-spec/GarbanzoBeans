@@ -114,6 +114,10 @@ pub fn run() {
             commands::upsert_settings,
             commands::init_data_folder,
             commands::get_read_only_state,
+            commands::get_envelopes,
+            commands::create_envelope,
+            commands::update_envelope,
+            commands::delete_envelope,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

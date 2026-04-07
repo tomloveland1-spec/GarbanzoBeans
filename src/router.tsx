@@ -2,15 +2,16 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Outlet,
   redirect,
 } from '@tanstack/react-router';
 import { TanStackRouterDevtools } from '@tanstack/router-devtools';
 import RootLayout from './App';
 import { useMonthStore } from '@/stores/useMonthStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
 import OnboardingPage from '@/features/settings/OnboardingPage';
 import SettingsPage from '@/features/settings/SettingsPage';
+import BudgetPage from '@/features/envelopes/BudgetPage';
 
 // Guard: redirect to /onboarding if not yet onboarded.
 // Uses getState() — not the hook — because hooks cannot be called outside React components.
@@ -46,6 +47,7 @@ const rootRoute = createRootRoute({
   beforeLoad: async () => {
     await useSettingsStore.getState().loadSettings();
     await useSettingsStore.getState().checkSentinel();
+    await useEnvelopeStore.getState().loadEnvelopes();
   },
 });
 
@@ -53,7 +55,7 @@ const rootRoute = createRootRoute({
 const budgetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: () => <Outlet />,   // replaced with BudgetPage in Story 2.2
+  component: BudgetPage,
   beforeLoad: () => {
     guardOnboarding();
     guardTurnTheMonth();
