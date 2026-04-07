@@ -10,6 +10,7 @@ import RootLayout from './App';
 import { useMonthStore } from '@/stores/useMonthStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import OnboardingPage from '@/features/settings/OnboardingPage';
+import SettingsPage from '@/features/settings/SettingsPage';
 
 // Guard: redirect to /onboarding if not yet onboarded.
 // Uses getState() — not the hook — because hooks cannot be called outside React components.
@@ -44,6 +45,7 @@ const rootRoute = createRootRoute({
   ),
   beforeLoad: async () => {
     await useSettingsStore.getState().loadSettings();
+    await useSettingsStore.getState().checkSentinel();
   },
 });
 
@@ -84,10 +86,10 @@ const merchantRulesRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
-  component: () => <div className="p-6 type-body" style={{ color: 'var(--color-text-primary)' }}>Settings — coming in Story 1.6</div>,
+  component: SettingsPage,
   beforeLoad: () => {
     guardOnboarding();
-    guardTurnTheMonth();
+    // No Turn the Month guard — settings must be accessible during closing state
   },
 });
 

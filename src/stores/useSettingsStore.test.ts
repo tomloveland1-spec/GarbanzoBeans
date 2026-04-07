@@ -77,4 +77,53 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().setReadOnly(false);
     expect(useSettingsStore.getState().isReadOnly).toBe(false);
   });
+
+  describe('checkSentinel', () => {
+    it('sets isReadOnly: true when get_read_only_state returns true', async () => {
+      mockInvoke.mockResolvedValueOnce(true);
+
+      await useSettingsStore.getState().checkSentinel();
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_read_only_state');
+      expect(useSettingsStore.getState().isReadOnly).toBe(true);
+    });
+
+    it('sets isReadOnly: false when get_read_only_state returns false', async () => {
+      mockInvoke.mockResolvedValueOnce(false);
+
+      await useSettingsStore.getState().checkSentinel();
+
+      expect(useSettingsStore.getState().isReadOnly).toBe(false);
+    });
+
+    it('sets isReadOnly: false (fail open) when invoke rejects', async () => {
+      mockInvoke.mockRejectedValueOnce(new Error('IPC error'));
+
+      await useSettingsStore.getState().checkSentinel();
+
+      expect(useSettingsStore.getState().isReadOnly).toBe(false);
+    });
+
+    it('does not affect isWriting or settings when called', async () => {
+      const mockSettings: Settings = {
+        id: 1,
+        budgetName: null,
+        startMonth: null,
+        payFrequency: 'monthly',
+        payDates: '"15"',
+        savingsTargetPct: 10,
+        dataFolderPath: '/data',
+        onboardingComplete: true,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+      useSettingsStore.setState({ settings: mockSettings, isWriting: false });
+      mockInvoke.mockResolvedValueOnce(true);
+
+      await useSettingsStore.getState().checkSentinel();
+
+      expect(useSettingsStore.getState().settings).toEqual(mockSettings);
+      expect(useSettingsStore.getState().isWriting).toBe(false);
+    });
+  });
 });

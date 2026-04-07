@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-06  # 1-5 → done (review complete)
+last_updated: 2026-04-06  # 1-5 → done; 1-6 → done; 1-7 → done; 1-8 → done; 1-9 → done
 project: GarbanzoBeans
 project_key: NOKEY
 tracking_system: file-system
@@ -49,10 +49,10 @@ development_status:
   1-3-sqlite-infrastructure-database-migrations-and-atomic-writes: done
   1-4-app-state-foundation-zustand-stores-tanstack-router: done
   1-5-onboarding-first-launch-setup: done
-  1-6-settings-screen-update-configuration-anytime: backlog
-  1-7-sentinel-lock-read-only-mode: backlog
-  1-8-auto-update-with-user-confirmation: backlog
-  1-9-release-pipeline-cicd-and-code-signing: backlog
+  1-6-settings-screen-update-configuration-anytime: done
+  1-7-sentinel-lock-read-only-mode: done
+  1-8-auto-update-with-user-confirmation: done
+  1-9-release-pipeline-cicd-and-code-signing: done
   epic-1-retrospective: optional
 
   # ── Epic 2: Envelope Budgeting — A Budget Tom Can Actually See ──

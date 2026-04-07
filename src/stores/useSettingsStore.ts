@@ -5,13 +5,14 @@ import type { AppError, Settings, UpsertSettingsInput } from '@/lib/types';
 interface SettingsState {
   settings: Settings | null;
   isWriting: boolean;
-  isReadOnly: boolean;    // scaffold for Story 1.7 sentinel detection
+  isReadOnly: boolean;
   error: AppError | null;
 
   // Actions
   loadSettings: () => Promise<void>;
   upsertSettings: (input: UpsertSettingsInput) => Promise<void>;
   setReadOnly: (value: boolean) => void;
+  checkSentinel: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -47,4 +48,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setReadOnly: (value) => set({ isReadOnly: value }),
+
+  checkSentinel: async () => {
+    try {
+      const isReadOnly = await invoke<boolean>('get_read_only_state');
+      set({ isReadOnly });
+    } catch {
+      set({ isReadOnly: false }); // fail open — don't block user if check fails
+    }
+  },
 }));

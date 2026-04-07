@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git stash:*)",
+      "Bash(printf \"\\\\n\\\\n\")",
+      "Bash(npx tauri:*)"
+    ]
+  }
+}

@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useUpdateStore } from '@/stores/useUpdateStore';
+import { Button } from '@/components/ui/button';
 
 // Nav items for the sidebar. Routes will expand as stories are implemented.
 const NAV_ITEMS = [
@@ -13,6 +16,14 @@ const NAV_ITEMS = [
 function App() {
   const isReadOnly = useSettingsStore((s) => s.isReadOnly);
   const isOnboarding = useRouterState({ select: (s) => s.location.pathname === '/onboarding' });
+  const { pendingUpdate, isDismissed, isInstalling, installError, dismissUpdate, applyUpdate } = useUpdateStore();
+
+  // Check for updates once on non-onboarding mount
+  useEffect(() => {
+    if (!isOnboarding) {
+      useUpdateStore.getState().checkForUpdate();
+    }
+  }, [isOnboarding]);
 
   if (isOnboarding) {
     return (
@@ -88,6 +99,45 @@ function App() {
               }}
             >
               Read-Only — another instance is open
+            </div>
+          )}
+
+          {/* Update prompt — shown when update is available and not dismissed */}
+          {pendingUpdate && !isDismissed && (
+            <div
+              data-testid="update-prompt"
+              className="shrink-0 flex items-center justify-between px-4 py-2"
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                borderBottom: '1px solid var(--color-border)',
+              }}
+            >
+              <span
+                className="type-label"
+                style={{ color: installError ? 'var(--color-amber)' : 'var(--color-text-primary)' }}
+                data-testid={installError ? 'update-error' : undefined}
+              >
+                {installError ?? `v${pendingUpdate.version} available`}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={applyUpdate}
+                  disabled={isInstalling}
+                  data-testid="update-confirm-button"
+                >
+                  {isInstalling ? 'Installing…' : 'Update Now'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={dismissUpdate}
+                  disabled={isInstalling}
+                  data-testid="update-dismiss-button"
+                >
+                  Later
+                </Button>
+              </div>
             </div>
           )}
 

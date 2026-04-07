@@ -13,12 +13,11 @@ import {
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { AppError } from '@/lib/types';
+import { buildPayDates, type PayFrequency } from '@/lib/pay-dates';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Step = 0 | 1 | 2 | 3 | 4; // 0 = welcome, 1–4 = wizard steps
-
-type PayFrequency = 'weekly' | 'bi-weekly' | 'twice-monthly' | 'monthly';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
@@ -35,18 +34,6 @@ function pastTwelveMonths(): string[] {
     months.push(`${yyyy}-${mm}`);
   }
   return months;
-}
-
-/** Build the payDates JSON string for storage. */
-function buildPayDates(
-  freq: PayFrequency,
-  payDate1: string,
-  payDate2: string,
-): string {
-  if (freq === 'twice-monthly') {
-    return JSON.stringify([payDate1, payDate2]);
-  }
-  return JSON.stringify(payDate1);
 }
 
 // ── Step Shell ────────────────────────────────────────────────────────────────

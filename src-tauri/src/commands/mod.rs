@@ -160,7 +160,16 @@ pub fn upsert_settings(
 }
 
 #[tauri::command]
-pub fn init_data_folder(data_folder_path: String) -> Result<(), AppError> {
+pub fn get_read_only_state(state: State<crate::ReadOnlyState>) -> bool {
+    *state.0.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+#[tauri::command]
+pub fn init_data_folder(
+    data_folder_path: String,
+    data_folder_state: State<crate::DataFolderState>,
+    read_only_state: State<crate::ReadOnlyState>,
+) -> Result<(), AppError> {
     use std::path::{Component, Path};
 
     if data_folder_path.trim().is_empty() {
@@ -196,6 +205,17 @@ pub fn init_data_folder(data_folder_path: String) -> Result<(), AppError> {
         code: "SENTINEL_WRITE_FAIL".to_string(),
         message: format!("Failed to write sentinel lock file: {}", e),
     })?;
+
+    // Update managed state so the close handler knows where to release the sentinel.
+    // Without this, DataFolderState remains None for the session (set at startup before
+    // onboarding completes), causing the close handler to skip sentinel::release() and
+    // leaving a stale lock that makes the next launch open in read-only mode.
+    if let Ok(mut guard) = data_folder_state.0.lock() {
+        *guard = Some(data_folder_path);
+    }
+    if let Ok(mut guard) = read_only_state.0.lock() {
+        *guard = false;
+    }
 
     Ok(())
 }

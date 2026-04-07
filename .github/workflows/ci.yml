@@ -33,8 +33,15 @@ jobs:
         run: cargo test
         working-directory: src-tauri
 
+      - name: Rust lint (clippy)
+        run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+
       - name: TypeScript typecheck
         run: npm run typecheck
+
+      - name: Lint (ESLint)
+        run: npm run lint
 
       - name: Vitest unit tests
         run: npm run test
