@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:\\\\Users\\\\toman\\\\Repositories\\\\GarbanzoBeans\" show --stat HEAD --name-only)"
+    ]
+  }
+}

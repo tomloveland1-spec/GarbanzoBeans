@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-06  # story 2-2 done
+last_updated: 2026-04-08  # story 4-4 done
 project: GarbanzoBeans
 project_key: NOKEY
 tracking_system: file-system
@@ -56,29 +56,35 @@ development_status:
   epic-1-retrospective: optional
 
   # ── Epic 2: Envelope Budgeting — A Budget Tom Can Actually See ──
+  # ── QA Walkthrough — Stories 1-1 through 2-2 ──
+  qa-walkthrough-stories-1-1-to-2-2: done  # completed 2026-04-07 — 21 issues logged to deferred-work.md
+  qa-walkthrough-story-2-3: done  # completed 2026-04-07 — issues logged to deferred-work.md
+  qa-polish-bugfix-stories-1-1-to-2-3: done  # created 2026-04-07 — 12 ACs, fix-now QA issues from walkthroughs
+
+  # ── Epic 2: Envelope Budgeting — A Budget Tom Can Actually See ──
   epic-2: in-progress
   2-1-envelope-schema-data-model: done
   2-2-create-and-manage-envelopes: done
-  2-3-envelope-state-logic-traffic-lights-tooltips: backlog
-  2-4-envelope-allocation-monthly-planning-session: backlog
-  2-5-borrow-flow-covering-a-shortfall: backlog
+  2-3-envelope-state-logic-traffic-lights-tooltips: done
+  2-4-envelope-allocation-monthly-planning-session: done
+  2-5-borrow-flow-covering-a-shortfall: done
   epic-2-retrospective: optional
 
   # ── Epic 3: OFX Import & Ledger — Real Transactions, Real Balances ──
-  epic-3: backlog
-  3-1-transaction-schema-data-model: backlog
-  3-2-ofx-import-file-ingestion-and-atomic-commit: backlog
-  3-3-dual-balance-ledger-view: backlog
-  3-4-auto-match-clearing-imported-transactions: backlog
-  3-5-manual-transaction-entry-and-editing: backlog
+  epic-3: in-progress
+  3-1-transaction-schema-data-model: done
+  3-2-ofx-import-file-ingestion-and-atomic-commit: done
+  3-3-dual-balance-ledger-view: done
+  3-4-auto-match-clearing-imported-transactions: done
+  3-5-manual-transaction-entry-and-editing: done
   epic-3-retrospective: optional
 
   # ── Epic 4: Merchant Rules & Smart Categorization — The App Learns Tom's Life ──
-  epic-4: backlog
-  4-1-merchant-rules-schema-data-model: backlog
-  4-2-auto-categorization-on-import: backlog
-  4-3-unknown-merchant-queue-manual-categorization: backlog
-  4-4-substring-rule-builder-creating-rules-inline: backlog
+  epic-4: in-progress
+  4-1-merchant-rules-schema-data-model: done
+  4-2-auto-categorization-on-import: done
+  4-3-unknown-merchant-queue-manual-categorization: done
+  4-4-substring-rule-builder-creating-rules-inline: done
   4-5-rule-application-forward-only-on-future-imports: backlog
   4-6-merchant-rules-screen-view-edit-delete: backlog
   epic-4-retrospective: optional

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -13,33 +13,18 @@ import {
 } from '@/components/ui/select';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { AppError } from '@/lib/types';
-import { buildPayDates, type PayFrequency } from '@/lib/pay-dates';
+import { pastTwelveMonths, formatMonthLabel } from '@/lib/date-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = 0 | 1 | 2 | 3 | 4; // 0 = welcome, 1–4 = wizard steps
+type Step = 0 | 1 | 2 | 3; // 0 = welcome, 1–3 = wizard steps
 
-const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Generate the past 12 months as YYYY-MM strings, newest first. */
-function pastTwelveMonths(): string[] {
-  const months: string[] = [];
-  const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const yyyy = d.getFullYear().toString();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    months.push(`${yyyy}-${mm}`);
-  }
-  return months;
-}
+const ONBOARDING_STORAGE_KEY = 'onboarding-state';
 
 // ── Step Shell ────────────────────────────────────────────────────────────────
 
 interface StepShellProps {
-  step: 1 | 2 | 3 | 4;
+  step: 1 | 2 | 3;
   onBack: () => void;
   onNext: () => void;
   nextLabel?: string;
@@ -65,7 +50,7 @@ function StepShell({
           className="type-label"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          Step {step} of 4
+          Step {step} of 3
         </span>
       </div>
 
@@ -154,10 +139,10 @@ function BudgetNameStep({
               <SelectTrigger id="start-month" data-testid="start-month-select">
                 <SelectValue placeholder="Select month…" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent side="bottom">
                 {months.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {m}
+                    {formatMonthLabel(m)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -238,183 +223,9 @@ function DataFolderStep({
   );
 }
 
-// ── Step 3: Pay Frequency ─────────────────────────────────────────────────────
+// ── Step 3: Savings Target ────────────────────────────────────────────────────
 
 interface Step3Props {
-  payFrequency: PayFrequency;
-  onPayFrequencyChange: (v: PayFrequency) => void;
-  payDate1: string;
-  onPayDate1Change: (v: string) => void;
-  payDate2: string;
-  onPayDate2Change: (v: string) => void;
-  onBack: () => void;
-  onNext: () => void;
-}
-
-function PayFrequencyStep({
-  payFrequency,
-  onPayFrequencyChange,
-  payDate1,
-  onPayDate1Change,
-  payDate2,
-  onPayDate2Change,
-  onBack,
-  onNext,
-}: Step3Props) {
-  const isNumericDayValid = (v: string) => {
-    const n = parseInt(v, 10);
-    return v !== '' && n >= 1 && n <= 28;
-  };
-
-  const payDate1Valid =
-    payFrequency === 'weekly' || payFrequency === 'bi-weekly'
-      ? !!payDate1
-      : isNumericDayValid(payDate1);
-
-  const payDate2Valid =
-    payFrequency === 'twice-monthly'
-      ? isNumericDayValid(payDate2) && payDate2 !== payDate1
-      : true;
-
-  const isNextDisabled = !payDate1Valid || !payDate2Valid;
-
-  return (
-    <StepShell
-      step={3}
-      onBack={onBack}
-      onNext={onNext}
-      nextDisabled={isNextDisabled}
-    >
-      <div className="w-full flex flex-col gap-6">
-        <h2
-          className="type-h2"
-          style={{ color: 'var(--color-text-primary)' }}
-        >
-          Pay schedule
-        </h2>
-
-        {/* Frequency radio group */}
-        <div className="flex flex-col gap-2" role="radiogroup" aria-label="Pay frequency">
-          {(
-            [
-              ['weekly', 'Weekly'],
-              ['bi-weekly', 'Bi-weekly'],
-              ['twice-monthly', 'Twice a month'],
-              ['monthly', 'Monthly'],
-            ] as const
-          ).map(([value, label]) => (
-            <label
-              key={value}
-              className="flex items-center gap-3 cursor-pointer"
-              style={{ color: 'var(--color-text-primary)' }}
-            >
-              <input
-                type="radio"
-                name="pay-frequency"
-                value={value}
-                checked={payFrequency === value}
-                onChange={() => {
-                  onPayFrequencyChange(value);
-                  onPayDate1Change('');
-                  onPayDate2Change('');
-                }}
-                data-testid={`pay-frequency-${value}`}
-              />
-              <span className="type-body">{label}</span>
-            </label>
-          ))}
-        </div>
-
-        {/* Conditional pay date inputs */}
-        {(payFrequency === 'weekly' || payFrequency === 'bi-weekly') && (
-          <div className="flex flex-col gap-1.5">
-            <label
-              className="type-label"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              Pay day
-            </label>
-            <Select value={payDate1} onValueChange={onPayDate1Change}>
-              <SelectTrigger data-testid="pay-date-1-select">
-                <SelectValue placeholder="Select day…" />
-              </SelectTrigger>
-              <SelectContent>
-                {DAYS_OF_WEEK.map((day) => (
-                  <SelectItem key={day} value={day}>
-                    {day}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {payFrequency === 'twice-monthly' && (
-          <div className="flex gap-4">
-            <div className="flex flex-col gap-1.5 flex-1">
-              <label
-                className="type-label"
-                style={{ color: 'var(--color-text-muted)' }}
-              >
-                First pay date
-              </label>
-              <Input
-                type="number"
-                min="1"
-                max="28"
-                value={payDate1}
-                onChange={(e) => onPayDate1Change(e.target.value)}
-                placeholder="e.g. 1"
-                data-testid="pay-date-1-input"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5 flex-1">
-              <label
-                className="type-label"
-                style={{ color: 'var(--color-text-muted)' }}
-              >
-                Second pay date
-              </label>
-              <Input
-                type="number"
-                min="1"
-                max="28"
-                value={payDate2}
-                onChange={(e) => onPayDate2Change(e.target.value)}
-                placeholder="e.g. 15"
-                data-testid="pay-date-2-input"
-              />
-            </div>
-          </div>
-        )}
-
-        {payFrequency === 'monthly' && (
-          <div className="flex flex-col gap-1.5">
-            <label
-              className="type-label"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              Pay date (day of month)
-            </label>
-            <Input
-              type="number"
-              min="1"
-              max="28"
-              value={payDate1}
-              onChange={(e) => onPayDate1Change(e.target.value)}
-              placeholder="e.g. 15"
-              data-testid="pay-date-1-input"
-            />
-          </div>
-        )}
-      </div>
-    </StepShell>
-  );
-}
-
-// ── Step 4: Savings Target ────────────────────────────────────────────────────
-
-interface Step4Props {
   savingsTarget: number;
   onSavingsTargetChange: (v: number) => void;
   onBack: () => void;
@@ -430,12 +241,12 @@ function SavingsTargetStep({
   onConfirm,
   isLoading,
   error,
-}: Step4Props) {
+}: Step3Props) {
   const isInvalid = savingsTarget < 0 || savingsTarget > 100 || !Number.isInteger(savingsTarget);
 
   return (
     <StepShell
-      step={4}
+      step={3}
       onBack={onBack}
       onNext={onConfirm}
       nextLabel="Confirm"
@@ -510,12 +321,34 @@ export default function OnboardingPage() {
   const [dataFolderPath, setDataFolderPath] = useState('');
 
   // Step 3 state
-  const [payFrequency, setPayFrequency] = useState<PayFrequency>('monthly');
-  const [payDate1, setPayDate1] = useState('');
-  const [payDate2, setPayDate2] = useState('');
-
-  // Step 4 state
   const [savingsTarget, setSavingsTarget] = useState(10);
+
+  // Restore from sessionStorage on mount
+  useEffect(() => {
+    const saved = sessionStorage.getItem(ONBOARDING_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.step > 0) {
+          setStep(parsed.step);
+          setBudgetName(parsed.budgetName ?? '');
+          setStartMonth(parsed.startMonth ?? '');
+          setDataFolderPath(parsed.dataFolderPath ?? '');
+          setSavingsTarget(parsed.savingsTarget ?? 10);
+        }
+      } catch {
+        // Ignore parse errors — start fresh
+      }
+    }
+  }, []);
+
+  // Persist state to sessionStorage on any change
+  useEffect(() => {
+    sessionStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({ step, budgetName, startMonth, dataFolderPath, savingsTarget }),
+    );
+  }, [step, budgetName, startMonth, dataFolderPath, savingsTarget]);
 
   const handleFinalConfirm = async () => {
     setError(null);
@@ -523,13 +356,12 @@ export default function OnboardingPage() {
       await upsertSettings({
         budgetName,
         startMonth,
-        payFrequency,
-        payDates: buildPayDates(payFrequency, payDate1, payDate2),
         savingsTargetPct: savingsTarget,
         dataFolderPath,
         onboardingComplete: true,
       });
       await invoke('init_data_folder', { dataFolderPath });
+      sessionStorage.removeItem(ONBOARDING_STORAGE_KEY);
       await navigate({ to: '/' });
     } catch (err) {
       setError(err as AppError);
@@ -593,27 +425,11 @@ export default function OnboardingPage() {
   }
 
   // ── Step 3 ──
-  if (step === 3) {
-    return (
-      <PayFrequencyStep
-        payFrequency={payFrequency}
-        onPayFrequencyChange={setPayFrequency}
-        payDate1={payDate1}
-        onPayDate1Change={setPayDate1}
-        payDate2={payDate2}
-        onPayDate2Change={setPayDate2}
-        onBack={() => setStep(2)}
-        onNext={() => setStep(4)}
-      />
-    );
-  }
-
-  // ── Step 4 ──
   return (
     <SavingsTargetStep
       savingsTarget={savingsTarget}
       onSavingsTargetChange={setSavingsTarget}
-      onBack={() => setStep(3)}
+      onBack={() => setStep(2)}
       onConfirm={handleFinalConfirm}
       isLoading={isWriting}
       error={error}

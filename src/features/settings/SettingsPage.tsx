@@ -11,6 +11,7 @@ import {
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { AppError } from '@/lib/types';
 import { buildPayDates, parsePayDates, type PayFrequency } from '@/lib/pay-dates';
+import { pastTwelveMonths, formatMonthLabel } from '@/lib/date-utils';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
@@ -28,9 +29,13 @@ export default function SettingsPage() {
   const [payDate1, setPayDate1] = useState(initialPayDate1);
   const [payDate2, setPayDate2] = useState(initialPayDate2);
   const [savingsTarget, setSavingsTarget] = useState(settings?.savingsTargetPct ?? 10);
+  const [budgetName, setBudgetName] = useState(settings?.budgetName ?? '');
+  const [startMonth, setStartMonth] = useState(settings?.startMonth ?? '');
 
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<AppError | null>(null);
+
+  const months = pastTwelveMonths();
 
   // ── Validation ──────────────────────────────────────────────────────────────
 
@@ -52,7 +57,18 @@ export default function SettingsPage() {
   const savingsTargetValid =
     Number.isInteger(savingsTarget) && savingsTarget >= 0 && savingsTarget <= 100;
 
-  const isSaveDisabled = !payDate1Valid || !payDate2Valid || !savingsTargetValid || isWriting || isReadOnly;
+  // ── Dirty tracking ──────────────────────────────────────────────────────────
+
+  const isDirty =
+    payFrequency !== (settings?.payFrequency ?? 'monthly') ||
+    payDate1 !== initialPayDate1 ||
+    payDate2 !== initialPayDate2 ||
+    savingsTarget !== (settings?.savingsTargetPct ?? 10) ||
+    budgetName !== (settings?.budgetName ?? '') ||
+    startMonth !== (settings?.startMonth ?? '');
+
+  const isSaveDisabled =
+    !payDate1Valid || !payDate2Valid || !savingsTargetValid || isWriting || isReadOnly || !isDirty;
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -71,14 +87,13 @@ export default function SettingsPage() {
         payFrequency,
         payDates: buildPayDates(payFrequency, payDate1, payDate2),
         savingsTargetPct: savingsTarget,
+        budgetName,
+        startMonth,
+        onboardingComplete: settings?.onboardingComplete ?? false,
       });
       setSaved(true);
-    } catch (err) {
-      if (err !== null && typeof err === 'object' && 'message' in err) {
-        setSaveError(err as AppError);
-      } else {
-        setSaveError({ message: String(err) } as AppError);
-      }
+    } catch {
+      setSaveError({ message: 'Failed to save settings. Please try again.' } as AppError);
     }
   };
 
@@ -92,6 +107,61 @@ export default function SettingsPage() {
       <h1 className="type-h1" style={{ color: 'var(--color-text-primary)' }}>
         Settings
       </h1>
+
+      {/* Budget section */}
+      <div
+        className="rounded-lg p-6 flex flex-col gap-4"
+        style={{
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border)',
+        }}
+      >
+        <h2 className="type-h2" style={{ color: 'var(--color-text-primary)' }}>
+          Budget
+        </h2>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="budget-name"
+            className="type-label"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Budget name
+          </label>
+          <Input
+            id="budget-name"
+            value={budgetName}
+            onChange={(e) => { setBudgetName(e.target.value); setSaved(false); }}
+            placeholder="e.g. Tom's Budget"
+            data-testid="budget-name-input"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="start-month"
+            className="type-label"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Budget start month
+          </label>
+          <Select
+            value={startMonth}
+            onValueChange={(v) => { setStartMonth(v); setSaved(false); }}
+          >
+            <SelectTrigger id="start-month" data-testid="start-month-select">
+              <SelectValue placeholder="Select month…" />
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {formatMonthLabel(m)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       {/* Pay schedule section */}
       <div

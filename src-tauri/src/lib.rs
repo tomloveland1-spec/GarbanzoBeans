@@ -118,6 +118,19 @@ pub fn run() {
             commands::create_envelope,
             commands::update_envelope,
             commands::delete_envelope,
+            commands::get_income_entries,
+            commands::create_income_entry,
+            commands::delete_income_entry,
+            commands::allocate_envelopes,
+            commands::borrow_from_envelope,
+            commands::get_transactions,
+            commands::create_transaction,
+            commands::update_transaction,
+            commands::import_ofx,
+            commands::get_merchant_rules,
+            commands::create_merchant_rule,
+            commands::update_merchant_rule,
+            commands::delete_merchant_rule,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

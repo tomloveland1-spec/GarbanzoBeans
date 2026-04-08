@@ -32,7 +32,9 @@ function App() {
           className="flex h-screen w-full"
           style={{ backgroundColor: 'var(--color-bg-app)' }}
         >
-          <Outlet />
+          <div className="flex-1 h-full w-full">
+            <Outlet />
+          </div>
         </div>
       </TooltipProvider>
     );

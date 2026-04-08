@@ -9,9 +9,15 @@ import RootLayout from './App';
 import { useMonthStore } from '@/stores/useMonthStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
+import { useIncomeStore } from '@/stores/useIncomeStore';
+import { useTransactionStore } from '@/stores/useTransactionStore';
+import { useMerchantRuleStore } from '@/stores/useMerchantRuleStore';
+import { pastTwelveMonths } from '@/lib/date-utils';
 import OnboardingPage from '@/features/settings/OnboardingPage';
 import SettingsPage from '@/features/settings/SettingsPage';
 import BudgetPage from '@/features/envelopes/BudgetPage';
+import AllocationPage from '@/features/envelopes/AllocationPage';
+import LedgerPage from '@/features/transactions/LedgerPage';
 
 // Guard: redirect to /onboarding if not yet onboarded.
 // Uses getState() — not the hook — because hooks cannot be called outside React components.
@@ -20,6 +26,15 @@ export function guardOnboarding() {
   const { settings } = useSettingsStore.getState();
   if (!settings || !settings.onboardingComplete) {
     throw redirect({ to: '/onboarding' });
+  }
+}
+
+// Guard: redirect to / if the app is in read-only mode (sentinel lock active).
+// Used to block the allocation route from read-only instances.
+function guardReadOnly() {
+  const { isReadOnly } = useSettingsStore.getState();
+  if (isReadOnly) {
+    throw redirect({ to: '/' });
   }
 }
 
@@ -48,6 +63,10 @@ const rootRoute = createRootRoute({
     await useSettingsStore.getState().loadSettings();
     await useSettingsStore.getState().checkSentinel();
     await useEnvelopeStore.getState().loadEnvelopes();
+    await useIncomeStore.getState().loadIncomeEntries();
+    const currentMonth = pastTwelveMonths()[0];
+    await useTransactionStore.getState().loadTransactions(currentMonth);
+    await useMerchantRuleStore.getState().loadRules();
   },
 });
 
@@ -66,7 +85,7 @@ const budgetRoute = createRoute({
 const ledgerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ledger',
-  component: () => <div className="p-6 type-body" style={{ color: 'var(--color-text-primary)' }}>Ledger — coming in Epic 3</div>,
+  component: LedgerPage,
   beforeLoad: () => {
     guardOnboarding();
     guardTurnTheMonth();
@@ -109,6 +128,18 @@ const onboardingRoute = createRoute({
   },
 });
 
+// /budget/allocate — Monthly allocation flow
+const allocationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/budget/allocate',
+  component: AllocationPage,
+  beforeLoad: () => {
+    guardOnboarding();
+    guardTurnTheMonth();
+    guardReadOnly();
+  },
+});
+
 // /turn-the-month
 // Guard: redirect to / if NOT in closing state (no manual access)
 const turnTheMonthRoute = createRoute({
@@ -125,6 +156,7 @@ const turnTheMonthRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   budgetRoute,
+  allocationRoute,
   ledgerRoute,
   merchantRulesRoute,
   settingsRoute,

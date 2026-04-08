@@ -21,6 +21,7 @@ export default function AddEnvelopeForm({ onSuccess, onCancel }: AddEnvelopeForm
   const [name, setName] = useState('');
   const [envelopeType, setEnvelopeType] = useState<EnvelopeType>('Rolling');
   const [priority, setPriority] = useState<EnvelopePriority>('Need');
+  const [isSavings, setIsSavings] = useState(false);
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -29,6 +30,7 @@ export default function AddEnvelopeForm({ onSuccess, onCancel }: AddEnvelopeForm
       envelopeType,
       priority,
       allocatedCents: 0,
+      isSavings,
     });
     if (!useEnvelopeStore.getState().error) {
       onSuccess();
@@ -73,6 +75,16 @@ export default function AddEnvelopeForm({ onSuccess, onCancel }: AddEnvelopeForm
           </SelectContent>
         </Select>
       </div>
+
+      <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
+        <input
+          type="checkbox"
+          checked={isSavings}
+          onChange={(e) => setIsSavings(e.target.checked)}
+          className="cursor-pointer"
+        />
+        This is my savings envelope
+      </label>
 
       <div className="flex gap-2 justify-end">
         <Button variant="ghost" onClick={onCancel}>

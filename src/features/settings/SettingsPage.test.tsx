@@ -70,10 +70,7 @@ describe('SettingsPage', () => {
     const { upsertSettings } = mockStore({ payFrequency: 'monthly', payDates: '"15"', savingsTargetPct: 10 });
     render(<SettingsPage />);
 
-    // Set a valid pay date and savings target
-    const payDateInput = screen.getByTestId('pay-date-1-input');
-    fireEvent.change(payDateInput, { target: { value: '15' } });
-
+    // Change savings target to make form dirty
     const savingsInput = screen.getByTestId('savings-target-input');
     fireEvent.change(savingsInput, { target: { value: '25' } });
 
@@ -85,6 +82,9 @@ describe('SettingsPage', () => {
         payFrequency: 'monthly',
         payDates: '"15"',
         savingsTargetPct: 25,
+        budgetName: 'Test Budget',
+        startMonth: '2026-04',
+        onboardingComplete: true,
       });
     });
   });
@@ -94,9 +94,9 @@ describe('SettingsPage', () => {
     upsertSettings.mockResolvedValue(undefined);
     render(<SettingsPage />);
 
-    // Set a valid pay date so save is not disabled
-    const payDateInput = screen.getByTestId('pay-date-1-input');
-    fireEvent.change(payDateInput, { target: { value: '15' } });
+    // Change savings target to make form dirty (required to enable Save)
+    const savingsInput = screen.getByTestId('savings-target-input');
+    fireEvent.change(savingsInput, { target: { value: '20' } });
 
     fireEvent.click(screen.getByTestId('save-settings-button'));
 
@@ -105,18 +105,19 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('shows inline error message when upsertSettings rejects', async () => {
+  it('shows friendly error message when upsertSettings rejects', async () => {
     const { upsertSettings } = mockStore({ payFrequency: 'monthly', payDates: '"15"', savingsTargetPct: 10 });
     upsertSettings.mockRejectedValue({ code: 'DB_ERROR', message: 'Write failed' });
     render(<SettingsPage />);
 
-    const payDateInput = screen.getByTestId('pay-date-1-input');
-    fireEvent.change(payDateInput, { target: { value: '15' } });
+    // Change savings target to make form dirty (required to enable Save)
+    const savingsInput = screen.getByTestId('savings-target-input');
+    fireEvent.change(savingsInput, { target: { value: '20' } });
 
     fireEvent.click(screen.getByTestId('save-settings-button'));
 
     await waitFor(() => {
-      expect(screen.getByText('Write failed')).toBeInTheDocument();
+      expect(screen.getByText('Failed to save settings. Please try again.')).toBeInTheDocument();
     });
   });
 

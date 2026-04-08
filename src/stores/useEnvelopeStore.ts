@@ -1,17 +1,20 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { AppError, Envelope, CreateEnvelopeInput, UpdateEnvelopeInput } from '@/lib/types';
+import type { AppError, Envelope, CreateEnvelopeInput, UpdateEnvelopeInput, BorrowInput, BorrowResult } from '@/lib/types';
 
 interface EnvelopeState {
   envelopes: Envelope[];
   isWriting: boolean;
   error: AppError | null;
+  borrowError: AppError | null;
 
   // Actions
   loadEnvelopes: () => Promise<void>;
   createEnvelope: (input: CreateEnvelopeInput) => Promise<void>;
   updateEnvelope: (input: UpdateEnvelopeInput) => Promise<void>;
   deleteEnvelope: (id: number) => Promise<void>;
+  allocateEnvelopes: (allocations: { id: number; allocatedCents: number }[]) => Promise<void>;
+  borrowFromEnvelope: (input: BorrowInput) => Promise<void>;
 }
 
 // Module-level counter for unique optimistic temp IDs — avoids -Date.now() collisions
@@ -21,6 +24,7 @@ export const useEnvelopeStore = create<EnvelopeState>((set, get) => ({
   envelopes: [],
   isWriting: false,
   error: null,
+  borrowError: null,
 
   loadEnvelopes: async () => {
     set({ isWriting: true, error: null });
@@ -50,6 +54,7 @@ export const useEnvelopeStore = create<EnvelopeState>((set, get) => ({
       allocatedCents: input.allocatedCents,
       monthId: input.monthId ?? null,
       createdAt: new Date().toISOString(),
+      isSavings: input.isSavings ?? false,
     };
 
     const prev = get().envelopes;
@@ -114,6 +119,66 @@ export const useEnvelopeStore = create<EnvelopeState>((set, get) => ({
       set({ isWriting: false });
     } catch (err) {
       set({ envelopes: prev, isWriting: false, error: err as AppError });
+    }
+  },
+
+  allocateEnvelopes: async (allocations) => {
+    const prev = get().envelopes;
+    // Optimistic: apply all allocatedCents changes immediately
+    set({
+      envelopes: prev.map((e) => {
+        const item = allocations.find((a) => a.id === e.id);
+        return item ? { ...e, allocatedCents: item.allocatedCents } : e;
+      }),
+      isWriting: true,
+      error: null,
+    });
+
+    try {
+      const updated = await invoke<Envelope[]>('allocate_envelopes', {
+        input: { allocations },
+      });
+      // Replace each affected envelope with the authoritative DB response
+      set((state) => {
+        const updatedMap = new Map(updated.map((e) => [e.id, e]));
+        return {
+          envelopes: state.envelopes.map((e) => updatedMap.get(e.id) ?? e),
+          isWriting: false,
+        };
+      });
+    } catch (err) {
+      set({ envelopes: prev, isWriting: false, error: err as AppError });
+    }
+  },
+
+  borrowFromEnvelope: async (input) => {
+    const prev = get().envelopes;
+    // Optimistic update: adjust allocatedCents for source and target immediately
+    set({
+      envelopes: prev.map((e) => {
+        if (e.id === input.sourceEnvelopeId) return { ...e, allocatedCents: e.allocatedCents - input.amountCents };
+        if (e.id === input.targetEnvelopeId) return { ...e, allocatedCents: e.allocatedCents + input.amountCents };
+        return e;
+      }),
+      isWriting: true,
+      borrowError: null,
+    });
+
+    try {
+      const result = await invoke<BorrowResult>('borrow_from_envelope', { input });
+      // Replace source and target with authoritative DB response
+      set((state) => {
+        const updatedMap = new Map([
+          [result.source.id, result.source],
+          [result.target.id, result.target],
+        ]);
+        return {
+          envelopes: state.envelopes.map((e) => updatedMap.get(e.id) ?? e),
+          isWriting: false,
+        };
+      });
+    } catch (err) {
+      set({ envelopes: prev, isWriting: false, borrowError: err as AppError });
     }
   },
 }));

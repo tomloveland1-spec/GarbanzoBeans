@@ -1,0 +1,1656 @@
+diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
+index 2e9ab94..88688fe 100644
+--- a/src-tauri/src/commands/mod.rs
++++ b/src-tauri/src/commands/mod.rs
+@@ -177,6 +177,7 @@ pub struct Envelope {
+     pub allocated_cents: i64,
+     pub month_id: Option<i64>,
+     pub created_at: String,
++    pub is_savings: bool,
+ }
+ 
+ #[derive(Debug, serde::Deserialize)]
+@@ -187,6 +188,7 @@ pub struct CreateEnvelopeInput {
+     pub priority: String,
+     pub allocated_cents: i64,
+     pub month_id: Option<i64>,
++    pub is_savings: Option<bool>,
+ }
+ 
+ #[derive(Debug, serde::Deserialize)]
+@@ -198,6 +200,7 @@ pub struct UpdateEnvelopeInput {
+     pub priority: Option<String>,
+     pub allocated_cents: Option<i64>,
+     pub month_id: Option<i64>,
++    pub is_savings: Option<bool>,
+ }
+ 
+ // --- Envelope validation helpers ---
+@@ -226,7 +229,7 @@ fn validate_priority(p: &str) -> Result<(), AppError> {
+ 
+ fn get_envelopes_inner(conn: &rusqlite::Connection) -> Result<Vec<Envelope>, AppError> {
+     let mut stmt = conn.prepare(
+-        "SELECT id, name, type, priority, allocated_cents, month_id, created_at \
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
+          FROM envelopes ORDER BY id ASC",
+     )?;
+ 
+@@ -240,6 +243,7 @@ fn get_envelopes_inner(conn: &rusqlite::Connection) -> Result<Vec<Envelope>, App
+                 allocated_cents: row.get(4)?,
+                 month_id: row.get(5)?,
+                 created_at: row.get(6)?,
++                is_savings: row.get::<_, i64>(7)? != 0,
+             })
+         })?
+         .collect::<Result<Vec<_>, _>>()
+@@ -272,21 +276,22 @@ fn create_envelope_inner(
+     let tx = conn.unchecked_transaction()?;
+ 
+     tx.execute(
+-        "INSERT INTO envelopes (name, type, priority, allocated_cents, month_id) \
+-         VALUES (?1, ?2, ?3, ?4, ?5)",
++        "INSERT INTO envelopes (name, type, priority, allocated_cents, month_id, is_savings) \
++         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+         rusqlite::params![
+             input.name.trim(),
+             input.envelope_type,
+             input.priority,
+             input.allocated_cents,
+             input.month_id,
++            input.is_savings.map(|b| if b { 1i64 } else { 0i64 }).unwrap_or(0),
+         ],
+     )?;
+ 
+     let id = tx.last_insert_rowid();
+ 
+     let envelope = tx.query_row(
+-        "SELECT id, name, type, priority, allocated_cents, month_id, created_at \
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
+          FROM envelopes WHERE id = ?1",
+         rusqlite::params![id],
+         |row| Ok(Envelope {
+@@ -297,6 +302,7 @@ fn create_envelope_inner(
+             allocated_cents: row.get(4)?,
+             month_id: row.get(5)?,
+             created_at: row.get(6)?,
++            is_savings: row.get::<_, i64>(7)? != 0,
+         }),
+     )?;
+ 
+@@ -356,7 +362,8 @@ fn update_envelope_inner(
+            type            = COALESCE(?3, type),
+            priority        = COALESCE(?4, priority),
+            allocated_cents = COALESCE(?5, allocated_cents),
+-           month_id        = COALESCE(?6, month_id)
++           month_id        = COALESCE(?6, month_id),
++           is_savings      = COALESCE(?7, is_savings)
+          WHERE id = ?1",
+         rusqlite::params![
+             input.id,
+@@ -365,6 +372,7 @@ fn update_envelope_inner(
+             input.priority,
+             input.allocated_cents,
+             input.month_id,
++            input.is_savings.map(|b| if b { 1i64 } else { 0i64 }),
+         ],
+     )?;
+ 
+@@ -376,7 +384,7 @@ fn update_envelope_inner(
+     }
+ 
+     let envelope = tx.query_row(
+-        "SELECT id, name, type, priority, allocated_cents, month_id, created_at \
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
+          FROM envelopes WHERE id = ?1",
+         rusqlite::params![input.id],
+         |row| Ok(Envelope {
+@@ -387,6 +395,7 @@ fn update_envelope_inner(
+             allocated_cents: row.get(4)?,
+             month_id: row.get(5)?,
+             created_at: row.get(6)?,
++            is_savings: row.get::<_, i64>(7)? != 0,
+         }),
+     )?;
+ 
+@@ -437,6 +446,795 @@ pub fn delete_envelope(state: State<DbState>, id: i64) -> Result<(), AppError> {
+     delete_envelope_inner(&conn, id)
+ }
+ 
++// --- Income entry types ---
++
++#[derive(Debug, serde::Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct IncomeEntry {
++    pub id: i64,
++    pub name: String,
++    pub amount_cents: i64,
++}
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CreateIncomeEntryInput {
++    pub name: String,
++    pub amount_cents: i64,
++}
++
++// --- Income entry commands (inner helpers accept &Connection for testability) ---
++
++fn get_income_entries_inner(conn: &rusqlite::Connection) -> Result<Vec<IncomeEntry>, AppError> {
++    let mut stmt = conn.prepare(
++        "SELECT id, name, amount_cents FROM income_entries ORDER BY id ASC",
++    )?;
++
++    let entries = stmt
++        .query_map([], |row| {
++            Ok(IncomeEntry {
++                id: row.get(0)?,
++                name: row.get(1)?,
++                amount_cents: row.get(2)?,
++            })
++        })?
++        .collect::<Result<Vec<_>, _>>()
++        .map_err(AppError::from)?;
++
++    Ok(entries)
++}
++
++fn create_income_entry_inner(
++    conn: &rusqlite::Connection,
++    input: &CreateIncomeEntryInput,
++) -> Result<IncomeEntry, AppError> {
++    if input.name.trim().is_empty() {
++        return Err(AppError {
++            code: "INVALID_INCOME_ENTRY_NAME".to_string(),
++            message: "Income entry name cannot be empty.".to_string(),
++        });
++    }
++
++    if input.amount_cents < 0 {
++        return Err(AppError {
++            code: "INVALID_AMOUNT_CENTS".to_string(),
++            message: "amount_cents cannot be negative.".to_string(),
++        });
++    }
++
++    let tx = conn.unchecked_transaction()?;
++
++    tx.execute(
++        "INSERT INTO income_entries (name, amount_cents) VALUES (?1, ?2)",
++        rusqlite::params![input.name.trim(), input.amount_cents],
++    )?;
++
++    let id = tx.last_insert_rowid();
++
++    let entry = tx.query_row(
++        "SELECT id, name, amount_cents FROM income_entries WHERE id = ?1",
++        rusqlite::params![id],
++        |row| Ok(IncomeEntry {
++            id: row.get(0)?,
++            name: row.get(1)?,
++            amount_cents: row.get(2)?,
++        }),
++    )?;
++
++    tx.commit()?;
++
++    Ok(entry)
++}
++
++fn delete_income_entry_inner(conn: &rusqlite::Connection, id: i64) -> Result<(), AppError> {
++    let tx = conn.unchecked_transaction()?;
++
++    tx.execute(
++        "DELETE FROM income_entries WHERE id = ?1",
++        rusqlite::params![id],
++    )?;
++
++    if tx.changes() == 0 {
++        return Err(AppError {
++            code: "ENTRY_NOT_FOUND".to_string(),
++            message: format!("No income entry found with id {}", id),
++        });
++    }
++
++    tx.commit()?;
++    Ok(())
++}
++
++#[tauri::command]
++pub fn get_income_entries(state: State<DbState>) -> Result<Vec<IncomeEntry>, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    get_income_entries_inner(&conn)
++}
++
++#[tauri::command]
++pub fn create_income_entry(
++    state: State<DbState>,
++    input: CreateIncomeEntryInput,
++) -> Result<IncomeEntry, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    create_income_entry_inner(&conn, &input)
++}
++
++#[tauri::command]
++pub fn delete_income_entry(state: State<DbState>, id: i64) -> Result<(), AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    delete_income_entry_inner(&conn, id)
++}
++
++// --- Allocation types ---
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct AllocationItem {
++    pub id: i64,
++    pub allocated_cents: i64,
++}
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct AllocateEnvelopesInput {
++    pub allocations: Vec<AllocationItem>,
++}
++
++// --- Bulk allocation command ---
++
++fn allocate_envelopes_inner(
++    conn: &rusqlite::Connection,
++    input: &AllocateEnvelopesInput,
++) -> Result<Vec<Envelope>, AppError> {
++    // Validate all cents before opening the transaction
++    for item in &input.allocations {
++        if item.allocated_cents < 0 {
++            return Err(AppError {
++                code: "INVALID_ALLOCATED_CENTS".to_string(),
++                message: "allocated_cents cannot be negative.".to_string(),
++            });
++        }
++    }
++
++    if input.allocations.is_empty() {
++        return Ok(vec![]);
++    }
++
++    let tx = conn.unchecked_transaction()?;
++
++    for item in &input.allocations {
++        tx.execute(
++            "UPDATE envelopes SET allocated_cents = ?2 WHERE id = ?1",
++            rusqlite::params![item.id, item.allocated_cents],
++        )?;
++
++        if tx.changes() == 0 {
++            return Err(AppError {
++                code: "ENVELOPE_NOT_FOUND".to_string(),
++                message: format!("No envelope found with id {}", item.id),
++            });
++        }
++    }
++
++    // Re-SELECT all updated envelopes in one pass
++    let ids: Vec<i64> = input.allocations.iter().map(|a| a.id).collect();
++    let placeholders = ids
++        .iter()
++        .enumerate()
++        .map(|(i, _)| format!("?{}", i + 1))
++        .collect::<Vec<_>>()
++        .join(", ");
++    let sql = format!(
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
++         FROM envelopes WHERE id IN ({}) ORDER BY id ASC",
++        placeholders
++    );
++
++    // Collect envelopes before committing — stmt borrows tx, must be dropped first.
++    // Using a named local `rows` inside the block before the final expression forces
++    // the MappedRows temporary to drop before the block ends and tx becomes available.
++    let envelopes = {
++        let mut stmt = tx.prepare(&sql)?;
++        let rows = stmt
++            .query_map(rusqlite::params_from_iter(ids.iter()), |row| {
++                Ok(Envelope {
++                    id: row.get(0)?,
++                    name: row.get(1)?,
++                    envelope_type: row.get(2)?,
++                    priority: row.get(3)?,
++                    allocated_cents: row.get(4)?,
++                    month_id: row.get(5)?,
++                    created_at: row.get(6)?,
++                    is_savings: row.get::<_, i64>(7)? != 0,
++                })
++            })?
++            .collect::<Result<Vec<_>, _>>()
++            .map_err(AppError::from)?;
++        rows
++    };
++
++    tx.commit()?;
++
++    Ok(envelopes)
++}
++
++#[tauri::command]
++pub fn allocate_envelopes(
++    state: State<DbState>,
++    input: AllocateEnvelopesInput,
++) -> Result<Vec<Envelope>, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    allocate_envelopes_inner(&conn, &input)
++}
++
++// --- Borrow types ---
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct BorrowInput {
++    pub source_envelope_id: i64,
++    pub target_envelope_id: i64,
++    pub amount_cents: i64,
++}
++
++#[derive(Debug, serde::Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct BorrowResult {
++    pub source: Envelope,
++    pub target: Envelope,
++}
++
++// --- Borrow command (inner helper for testability) ---
++
++fn borrow_from_envelope_inner(
++    conn: &rusqlite::Connection,
++    input: &BorrowInput,
++) -> Result<BorrowResult, AppError> {
++    if input.amount_cents <= 0 {
++        return Err(AppError {
++            code: "INVALID_AMOUNT_CENTS".to_string(),
++            message: "amount_cents must be greater than zero.".to_string(),
++        });
++    }
++
++    if input.source_envelope_id == input.target_envelope_id {
++        return Err(AppError {
++            code: "INVALID_BORROW_SAME_ENVELOPE".to_string(),
++            message: "Source and target envelopes must be different.".to_string(),
++        });
++    }
++
++    let tx = conn.unchecked_transaction()?;
++
++    // Fetch source allocated_cents inside the transaction to prevent TOCTOU race
++    let source_allocated: i64 = tx
++        .query_row(
++            "SELECT allocated_cents FROM envelopes WHERE id = ?1",
++            rusqlite::params![input.source_envelope_id],
++            |row| row.get(0),
++        )
++        .map_err(|e| match e {
++            rusqlite::Error::QueryReturnedNoRows => AppError {
++                code: "ENVELOPE_NOT_FOUND".to_string(),
++                message: format!("No envelope found with id {}", input.source_envelope_id),
++            },
++            other => AppError::from(other),
++        })?;
++
++    if source_allocated < input.amount_cents {
++        return Err(AppError {
++            code: "INSUFFICIENT_BALANCE".to_string(),
++            message: "Source envelope does not have enough balance to cover this borrow.".to_string(),
++        });
++    }
++
++    tx.execute(
++        "UPDATE envelopes SET allocated_cents = allocated_cents - ?2 WHERE id = ?1",
++        rusqlite::params![input.source_envelope_id, input.amount_cents],
++    )?;
++
++    if tx.changes() == 0 {
++        return Err(AppError {
++            code: "ENVELOPE_NOT_FOUND".to_string(),
++            message: format!("No envelope found with id {}", input.source_envelope_id),
++        });
++    }
++
++    tx.execute(
++        "UPDATE envelopes SET allocated_cents = allocated_cents + ?2 WHERE id = ?1",
++        rusqlite::params![input.target_envelope_id, input.amount_cents],
++    )?;
++
++    if tx.changes() == 0 {
++        return Err(AppError {
++            code: "ENVELOPE_NOT_FOUND".to_string(),
++            message: format!("No envelope found with id {}", input.target_envelope_id),
++        });
++    }
++
++    tx.execute(
++        "INSERT INTO borrow_events (source_envelope_id, target_envelope_id, amount_cents) \
++         VALUES (?1, ?2, ?3)",
++        rusqlite::params![
++            input.source_envelope_id,
++            input.target_envelope_id,
++            input.amount_cents,
++        ],
++    )?;
++
++    // Re-SELECT both envelopes with authoritative DB values
++    let source = tx.query_row(
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
++         FROM envelopes WHERE id = ?1",
++        rusqlite::params![input.source_envelope_id],
++        |row| Ok(Envelope {
++            id: row.get(0)?,
++            name: row.get(1)?,
++            envelope_type: row.get(2)?,
++            priority: row.get(3)?,
++            allocated_cents: row.get(4)?,
++            month_id: row.get(5)?,
++            created_at: row.get(6)?,
++            is_savings: row.get::<_, i64>(7)? != 0,
++        }),
++    ).map_err(AppError::from)?;
++
++    let target = tx.query_row(
++        "SELECT id, name, type, priority, allocated_cents, month_id, created_at, is_savings \
++         FROM envelopes WHERE id = ?1",
++        rusqlite::params![input.target_envelope_id],
++        |row| Ok(Envelope {
++            id: row.get(0)?,
++            name: row.get(1)?,
++            envelope_type: row.get(2)?,
++            priority: row.get(3)?,
++            allocated_cents: row.get(4)?,
++            month_id: row.get(5)?,
++            created_at: row.get(6)?,
++            is_savings: row.get::<_, i64>(7)? != 0,
++        }),
++    ).map_err(AppError::from)?;
++
++    tx.commit()?;
++
++    Ok(BorrowResult { source, target })
++}
++
++#[tauri::command]
++pub fn borrow_from_envelope(
++    state: State<DbState>,
++    input: BorrowInput,
++) -> Result<BorrowResult, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    borrow_from_envelope_inner(&conn, &input)
++}
++
++// --- Transaction types ---
++
++#[derive(Debug, serde::Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct Transaction {
++    pub id: i64,
++    pub payee: String,
++    pub amount_cents: i64,         // index 2 — INTEGER cents, NEVER float
++    pub date: String,              // index 3 — ISO 8601 "YYYY-MM-DD"
++    pub envelope_id: Option<i64>, // index 4 — nullable FK
++    pub is_cleared: bool,          // index 5 — stored as i64 0/1
++    pub import_batch_id: Option<String>, // index 6 — nullable
++    pub created_at: String,        // index 7 — ISO 8601 UTC
++}
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct CreateTransactionInput {
++    pub payee: String,
++    pub amount_cents: i64,
++    pub date: String,
++    pub envelope_id: Option<i64>,
++    pub is_cleared: Option<bool>,
++    pub import_batch_id: Option<String>,
++}
++
++#[derive(Debug, serde::Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct UpdateTransactionInput {
++    pub id: i64,
++    pub payee: Option<String>,
++    pub amount_cents: Option<i64>,
++    pub date: Option<String>,
++    pub envelope_id: Option<i64>,
++    pub is_cleared: Option<bool>,
++}
++
++// --- Transaction row mapper (shared across get/create/update) ---
++
++fn map_transaction_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Transaction> {
++    Ok(Transaction {
++        id: row.get(0)?,
++        payee: row.get(1)?,
++        amount_cents: row.get(2)?,
++        date: row.get(3)?,
++        envelope_id: row.get::<_, Option<i64>>(4)?,
++        is_cleared: row.get::<_, i64>(5)? != 0,
++        import_batch_id: row.get::<_, Option<String>>(6)?,
++        created_at: row.get(7)?,
++    })
++}
++
++// --- Compute next month for date-range filtering ---
++
++fn next_month(ym: &str) -> String {
++    let parts: Vec<&str> = ym.splitn(2, '-').collect();
++    let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
++    let month: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
++    if month == 12 {
++        format!("{}-01", year + 1)
++    } else {
++        format!("{}-{:02}", year, month + 1)
++    }
++}
++
++// --- Transaction commands ---
++
++fn get_transactions_inner(
++    conn: &rusqlite::Connection,
++    month_key: Option<String>,
++) -> Result<Vec<Transaction>, AppError> {
++    // Build the SQL string up front so `stmt` can borrow from it for its full lifetime.
++    let sql = if let Some(ref ym) = month_key {
++        let lower = format!("{}-01", ym);
++        let upper = next_month(ym);
++        format!(
++            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
++             FROM transactions WHERE date >= '{}' AND date < '{}' ORDER BY date DESC, id DESC",
++            lower, upper
++        )
++    } else {
++        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
++         FROM transactions ORDER BY date DESC, id DESC"
++            .to_string()
++    };
++
++    let mut stmt = conn.prepare(&sql)?;
++    let transactions = {
++        let rows = stmt
++            .query_map([], map_transaction_row)?
++            .collect::<Result<Vec<_>, _>>()
++            .map_err(AppError::from)?;
++        rows
++    };
++
++    Ok(transactions)
++}
++
++fn create_transaction_inner(
++    conn: &rusqlite::Connection,
++    input: &CreateTransactionInput,
++) -> Result<Transaction, AppError> {
++    let tx = conn.unchecked_transaction()?;
++    tx.execute(
++        "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared, import_batch_id) \
++         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
++        rusqlite::params![
++            input.payee,
++            input.amount_cents,
++            input.date,
++            input.envelope_id,
++            if input.is_cleared.unwrap_or(false) { 1i64 } else { 0i64 },
++            input.import_batch_id,
++        ],
++    )?;
++    let id = tx.last_insert_rowid();
++    let row = tx.query_row(
++        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
++         FROM transactions WHERE id = ?1",
++        rusqlite::params![id],
++        map_transaction_row,
++    )?;
++    tx.commit()?;
++    Ok(row)
++}
++
++fn update_transaction_inner(
++    conn: &rusqlite::Connection,
++    input: &UpdateTransactionInput,
++) -> Result<Transaction, AppError> {
++    let tx = conn.unchecked_transaction()?;
++
++    tx.execute(
++        "UPDATE transactions SET
++           payee           = COALESCE(?2, payee),
++           amount_cents    = COALESCE(?3, amount_cents),
++           date            = COALESCE(?4, date),
++           envelope_id     = COALESCE(?5, envelope_id),
++           is_cleared      = COALESCE(?6, is_cleared)
++         WHERE id = ?1",
++        rusqlite::params![
++            input.id,
++            input.payee.as_deref(),
++            input.amount_cents,
++            input.date.as_deref(),
++            input.envelope_id,
++            input.is_cleared.map(|b| if b { 1i64 } else { 0i64 }),
++        ],
++    )?;
++
++    if tx.changes() == 0 {
++        return Err(AppError {
++            code: "TRANSACTION_NOT_FOUND".to_string(),
++            message: format!("No transaction found with id {}", input.id),
++        });
++    }
++
++    let row = tx.query_row(
++        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
++         FROM transactions WHERE id = ?1",
++        rusqlite::params![input.id],
++        map_transaction_row,
++    )?;
++    tx.commit()?;
++    Ok(row)
++}
++
++#[tauri::command]
++pub fn get_transactions(
++    state: State<DbState>,
++    month_key: Option<String>,
++) -> Result<Vec<Transaction>, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    get_transactions_inner(&conn, month_key)
++}
++
++#[tauri::command]
++pub fn create_transaction(
++    state: State<DbState>,
++    input: CreateTransactionInput,
++) -> Result<Transaction, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    create_transaction_inner(&conn, &input)
++}
++
++#[tauri::command]
++pub fn update_transaction(
++    state: State<DbState>,
++    input: UpdateTransactionInput,
++) -> Result<Transaction, AppError> {
++    let conn = state.0.lock().map_err(|_| AppError {
++        code: "DB_LOCK_POISON".to_string(),
++        message: "Database mutex was poisoned.".to_string(),
++    })?;
++    update_transaction_inner(&conn, &input)
++}
++
++#[cfg(test)]
++mod transaction_tests {
++    use crate::migrations;
++    use rusqlite::Connection;
++    use super::{CreateTransactionInput, UpdateTransactionInput};
++    use super::{get_transactions_inner, create_transaction_inner, update_transaction_inner};
++
++    fn fresh_conn() -> Connection {
++        let conn = Connection::open_in_memory().unwrap();
++        migrations::run_migrations(&conn).unwrap();
++        conn
++    }
++
++    fn make_tx(conn: &Connection, payee: &str, cents: i64, date: &str) -> super::Transaction {
++        create_transaction_inner(conn, &CreateTransactionInput {
++            payee: payee.to_string(),
++            amount_cents: cents,
++            date: date.to_string(),
++            envelope_id: None,
++            is_cleared: None,
++            import_batch_id: None,
++        }).unwrap()
++    }
++
++    #[test]
++    fn test_create_transaction_returns_inserted_row() {
++        let conn = fresh_conn();
++        let tx = make_tx(&conn, "Grocery Store", 5000, "2026-04-05");
++        assert!(tx.id > 0);
++        assert_eq!(tx.payee, "Grocery Store");
++        assert_eq!(tx.amount_cents, 5000);
++        assert_eq!(tx.date, "2026-04-05");
++        assert!(tx.envelope_id.is_none());
++        assert!(tx.import_batch_id.is_none());
++    }
++
++    #[test]
++    fn test_create_transaction_is_uncleared_by_default() {
++        let conn = fresh_conn();
++        let tx = make_tx(&conn, "Coffee Shop", 500, "2026-04-06");
++        assert!(!tx.is_cleared, "transaction should default to uncleared");
++    }
++
++    #[test]
++    fn test_get_transactions_filters_by_month_key() {
++        let conn = fresh_conn();
++        make_tx(&conn, "March item", 100, "2026-03-15");
++        make_tx(&conn, "April item", 200, "2026-04-10");
++        make_tx(&conn, "May item", 300, "2026-05-01");
++
++        let april = get_transactions_inner(&conn, Some("2026-04".to_string())).unwrap();
++        assert_eq!(april.len(), 1);
++        assert_eq!(april[0].payee, "April item");
++    }
++
++    #[test]
++    fn test_get_transactions_returns_all_when_no_month_key() {
++        let conn = fresh_conn();
++        make_tx(&conn, "Item A", 100, "2026-01-01");
++        make_tx(&conn, "Item B", 200, "2026-06-15");
++        make_tx(&conn, "Item C", 300, "2025-12-31");
++
++        let all = get_transactions_inner(&conn, None).unwrap();
++        assert_eq!(all.len(), 3);
++    }
++
++    #[test]
++    fn test_update_transaction_changes_fields() {
++        let conn = fresh_conn();
++        let created = make_tx(&conn, "Old Payee", 1000, "2026-04-01");
++
++        let updated = update_transaction_inner(&conn, &UpdateTransactionInput {
++            id: created.id,
++            payee: Some("New Payee".to_string()),
++            amount_cents: Some(2000),
++            date: None,
++            envelope_id: None,
++            is_cleared: Some(true),
++        }).unwrap();
++
++        assert_eq!(updated.id, created.id);
++        assert_eq!(updated.payee, "New Payee");
++        assert_eq!(updated.amount_cents, 2000);
++        assert_eq!(updated.date, "2026-04-01"); // unchanged
++        assert!(updated.is_cleared);
++    }
++
++    #[test]
++    fn test_update_transaction_returns_not_found_for_invalid_id() {
++        let conn = fresh_conn();
++        let err = update_transaction_inner(&conn, &UpdateTransactionInput {
++            id: 9999,
++            payee: Some("Ghost".to_string()),
++            amount_cents: None,
++            date: None,
++            envelope_id: None,
++            is_cleared: None,
++        }).unwrap_err();
++        assert_eq!(err.code, "TRANSACTION_NOT_FOUND");
++    }
++}
++
++#[cfg(test)]
++mod borrow_tests {
++    use crate::migrations;
++    use rusqlite::Connection;
++    use super::{CreateEnvelopeInput, BorrowInput};
++    use super::{create_envelope_inner, borrow_from_envelope_inner};
++
++    fn fresh_conn() -> Connection {
++        let conn = Connection::open_in_memory().unwrap();
++        migrations::run_migrations(&conn).unwrap();
++        conn
++    }
++
++    fn make_envelope(conn: &Connection, name: &str, cents: i64) -> i64 {
++        let input = CreateEnvelopeInput {
++            name: name.to_string(),
++            envelope_type: "Rolling".to_string(),
++            priority: "Need".to_string(),
++            allocated_cents: cents,
++            month_id: None,
++            is_savings: None,
++        };
++        create_envelope_inner(conn, &input).unwrap().id
++    }
++
++    #[test]
++    fn test_borrow_from_envelope_happy_path() {
++        let conn = fresh_conn();
++        let source_id = make_envelope(&conn, "Vacation", 50000);
++        let target_id = make_envelope(&conn, "Car Repair", 0);
++
++        let input = BorrowInput {
++            source_envelope_id: source_id,
++            target_envelope_id: target_id,
++            amount_cents: 20000,
++        };
++        let result = borrow_from_envelope_inner(&conn, &input).unwrap();
++
++        assert_eq!(result.source.id, source_id);
++        assert_eq!(result.source.allocated_cents, 30000);
++        assert_eq!(result.target.id, target_id);
++        assert_eq!(result.target.allocated_cents, 20000);
++
++        // Verify borrow_event was inserted
++        let count: i64 = conn
++            .query_row("SELECT COUNT(*) FROM borrow_events", [], |row| row.get(0))
++            .unwrap();
++        assert_eq!(count, 1);
++    }
++
++    #[test]
++    fn test_borrow_from_envelope_same_envelope() {
++        let conn = fresh_conn();
++        let id = make_envelope(&conn, "Groceries", 50000);
++        let input = BorrowInput {
++            source_envelope_id: id,
++            target_envelope_id: id,
++            amount_cents: 10000,
++        };
++        let err = borrow_from_envelope_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INVALID_BORROW_SAME_ENVELOPE");
++    }
++
++    #[test]
++    fn test_borrow_from_envelope_zero_amount() {
++        let conn = fresh_conn();
++        let source_id = make_envelope(&conn, "Vacation", 50000);
++        let target_id = make_envelope(&conn, "Car", 0);
++        let input = BorrowInput {
++            source_envelope_id: source_id,
++            target_envelope_id: target_id,
++            amount_cents: 0,
++        };
++        let err = borrow_from_envelope_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INVALID_AMOUNT_CENTS");
++    }
++
++    #[test]
++    fn test_borrow_from_envelope_insufficient_balance() {
++        let conn = fresh_conn();
++        let source_id = make_envelope(&conn, "Vacation", 5000);
++        let target_id = make_envelope(&conn, "Car", 0);
++        let input = BorrowInput {
++            source_envelope_id: source_id,
++            target_envelope_id: target_id,
++            amount_cents: 10000,
++        };
++        let err = borrow_from_envelope_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INSUFFICIENT_BALANCE");
++    }
++
++    #[test]
++    fn test_borrow_from_envelope_target_not_found() {
++        let conn = fresh_conn();
++        let source_id = make_envelope(&conn, "Vacation", 50000);
++        let input = BorrowInput {
++            source_envelope_id: source_id,
++            target_envelope_id: 9999,
++            amount_cents: 10000,
++        };
++        let err = borrow_from_envelope_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "ENVELOPE_NOT_FOUND");
++    }
++}
++
+ #[cfg(test)]
+ mod envelope_tests {
+     use crate::migrations;
+@@ -466,6 +1264,7 @@ mod envelope_tests {
+             priority: "Need".to_string(),
+             allocated_cents: 50000,
+             month_id: None,
++            is_savings: None,
+         };
+         let created = create_envelope_inner(&conn, &input).unwrap();
+         assert_eq!(created.name, "Groceries");
+@@ -484,6 +1283,7 @@ mod envelope_tests {
+             priority: "Need".to_string(),
+             allocated_cents: 0,
+             month_id: None,
++            is_savings: None,
+         };
+         let err = create_envelope_inner(&conn, &input).unwrap_err();
+         assert_eq!(err.code, "INVALID_ENVELOPE_TYPE");
+@@ -498,6 +1298,7 @@ mod envelope_tests {
+             priority: "Need".to_string(),
+             allocated_cents: 100000,
+             month_id: None,
++            is_savings: None,
+         };
+         let created = create_envelope_inner(&conn, &input).unwrap();
+ 
+@@ -508,6 +1309,7 @@ mod envelope_tests {
+             priority: None,
+             allocated_cents: Some(120000),
+             month_id: None,
++            is_savings: None,
+         };
+         let updated = update_envelope_inner(&conn, &update).unwrap();
+         assert_eq!(updated.name, "Rent Updated");
+@@ -525,6 +1327,7 @@ mod envelope_tests {
+             priority: None,
+             allocated_cents: None,
+             month_id: None,
++            is_savings: None,
+         };
+         let err = update_envelope_inner(&conn, &update).unwrap_err();
+         assert_eq!(err.code, "ENVELOPE_NOT_FOUND");
+@@ -539,6 +1342,7 @@ mod envelope_tests {
+             priority: "Need".to_string(),
+             allocated_cents: 50000,
+             month_id: None,
++            is_savings: None,
+         };
+         let created = create_envelope_inner(&conn, &input).unwrap();
+         let result = delete_envelope_inner(&conn, created.id);
+@@ -556,6 +1360,199 @@ mod envelope_tests {
+     }
+ }
+ 
++#[cfg(test)]
++mod income_tests {
++    use crate::migrations;
++    use rusqlite::Connection;
++    use super::{CreateIncomeEntryInput};
++    use super::{get_income_entries_inner, create_income_entry_inner, delete_income_entry_inner};
++
++    fn fresh_conn() -> Connection {
++        let conn = Connection::open_in_memory().unwrap();
++        migrations::run_migrations(&conn).unwrap();
++        conn
++    }
++
++    #[test]
++    fn test_get_income_entries_empty_on_fresh_db() {
++        let conn = fresh_conn();
++        let entries = get_income_entries_inner(&conn).unwrap();
++        assert!(entries.is_empty(), "fresh DB should have no income entries");
++    }
++
++    #[test]
++    fn test_create_income_entry_ok() {
++        let conn = fresh_conn();
++        let input = CreateIncomeEntryInput {
++            name: "1st Paycheck".to_string(),
++            amount_cents: 250000,
++        };
++        let entry = create_income_entry_inner(&conn, &input).unwrap();
++        assert_eq!(entry.name, "1st Paycheck");
++        assert_eq!(entry.amount_cents, 250000);
++        assert!(entry.id > 0);
++    }
++
++    #[test]
++    fn test_create_income_entry_zero_cents_allowed() {
++        let conn = fresh_conn();
++        let input = CreateIncomeEntryInput {
++            name: "Bonus".to_string(),
++            amount_cents: 0,
++        };
++        let entry = create_income_entry_inner(&conn, &input).unwrap();
++        assert_eq!(entry.amount_cents, 0);
++    }
++
++    #[test]
++    fn test_create_income_entry_empty_name_rejected() {
++        let conn = fresh_conn();
++        let input = CreateIncomeEntryInput {
++            name: "   ".to_string(),
++            amount_cents: 10000,
++        };
++        let err = create_income_entry_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INVALID_INCOME_ENTRY_NAME");
++    }
++
++    #[test]
++    fn test_create_income_entry_negative_cents_rejected() {
++        let conn = fresh_conn();
++        let input = CreateIncomeEntryInput {
++            name: "Bad".to_string(),
++            amount_cents: -1,
++        };
++        let err = create_income_entry_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INVALID_AMOUNT_CENTS");
++    }
++
++    #[test]
++    fn test_delete_income_entry_ok() {
++        let conn = fresh_conn();
++        let input = CreateIncomeEntryInput {
++            name: "2nd Paycheck".to_string(),
++            amount_cents: 250000,
++        };
++        let entry = create_income_entry_inner(&conn, &input).unwrap();
++        delete_income_entry_inner(&conn, entry.id).unwrap();
++        let entries = get_income_entries_inner(&conn).unwrap();
++        assert!(entries.is_empty());
++    }
++
++    #[test]
++    fn test_delete_income_entry_not_found() {
++        let conn = fresh_conn();
++        let err = delete_income_entry_inner(&conn, 9999).unwrap_err();
++        assert_eq!(err.code, "ENTRY_NOT_FOUND");
++    }
++}
++
++#[cfg(test)]
++mod allocation_tests {
++    use crate::migrations;
++    use rusqlite::Connection;
++    use super::{CreateEnvelopeInput, AllocationItem, AllocateEnvelopesInput};
++    use super::{create_envelope_inner, allocate_envelopes_inner, get_envelopes_inner};
++
++    fn fresh_conn() -> Connection {
++        let conn = Connection::open_in_memory().unwrap();
++        migrations::run_migrations(&conn).unwrap();
++        conn
++    }
++
++    fn make_envelope(conn: &Connection, name: &str, cents: i64) -> i64 {
++        let input = CreateEnvelopeInput {
++            name: name.to_string(),
++            envelope_type: "Rolling".to_string(),
++            priority: "Need".to_string(),
++            allocated_cents: cents,
++            month_id: None,
++            is_savings: None,
++        };
++        create_envelope_inner(conn, &input).unwrap().id
++    }
++
++    #[test]
++    fn test_allocate_envelopes_happy_path() {
++        let conn = fresh_conn();
++        let id1 = make_envelope(&conn, "Groceries", 0);
++        let id2 = make_envelope(&conn, "Rent", 0);
++
++        let input = AllocateEnvelopesInput {
++            allocations: vec![
++                AllocationItem { id: id1, allocated_cents: 50000 },
++                AllocationItem { id: id2, allocated_cents: 100000 },
++            ],
++        };
++        let updated = allocate_envelopes_inner(&conn, &input).unwrap();
++        assert_eq!(updated.len(), 2);
++        let g = updated.iter().find(|e| e.id == id1).unwrap();
++        let r = updated.iter().find(|e| e.id == id2).unwrap();
++        assert_eq!(g.allocated_cents, 50000);
++        assert_eq!(r.allocated_cents, 100000);
++    }
++
++    #[test]
++    fn test_allocate_envelopes_zero_cents_allowed() {
++        let conn = fresh_conn();
++        let id = make_envelope(&conn, "Vacation", 5000);
++        let input = AllocateEnvelopesInput {
++            allocations: vec![AllocationItem { id, allocated_cents: 0 }],
++        };
++        let updated = allocate_envelopes_inner(&conn, &input).unwrap();
++        assert_eq!(updated[0].allocated_cents, 0);
++    }
++
++    #[test]
++    fn test_allocate_envelopes_negative_cents_rejected() {
++        let conn = fresh_conn();
++        let id = make_envelope(&conn, "Groceries", 1000);
++        let input = AllocateEnvelopesInput {
++            allocations: vec![AllocationItem { id, allocated_cents: -1 }],
++        };
++        let err = allocate_envelopes_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "INVALID_ALLOCATED_CENTS");
++    }
++
++    #[test]
++    fn test_allocate_envelopes_unknown_id_rejected() {
++        let conn = fresh_conn();
++        let input = AllocateEnvelopesInput {
++            allocations: vec![AllocationItem { id: 9999, allocated_cents: 100 }],
++        };
++        let err = allocate_envelopes_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "ENVELOPE_NOT_FOUND");
++    }
++
++    #[test]
++    fn test_allocate_envelopes_empty_list_ok() {
++        let conn = fresh_conn();
++        let input = AllocateEnvelopesInput { allocations: vec![] };
++        let updated = allocate_envelopes_inner(&conn, &input).unwrap();
++        assert!(updated.is_empty());
++    }
++
++    #[test]
++    fn test_allocate_envelopes_is_atomic_on_error() {
++        // If one item fails, none should be committed
++        let conn = fresh_conn();
++        let id1 = make_envelope(&conn, "Groceries", 0);
++        let input = AllocateEnvelopesInput {
++            allocations: vec![
++                AllocationItem { id: id1, allocated_cents: 50000 },
++                AllocationItem { id: 9999, allocated_cents: 10000 }, // bad id
++            ],
++        };
++        let err = allocate_envelopes_inner(&conn, &input).unwrap_err();
++        assert_eq!(err.code, "ENVELOPE_NOT_FOUND");
++
++        // Groceries should NOT have been updated (transaction rolled back)
++        let envelopes = get_envelopes_inner(&conn).unwrap();
++        let groceries = envelopes.iter().find(|e| e.id == id1).unwrap();
++        assert_eq!(groceries.allocated_cents, 0, "rollback should restore original value");
++    }
++}
++
+ #[tauri::command]
+ pub fn init_data_folder(
+     data_folder_path: String,
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 1d83431..e1112dd 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -118,6 +118,14 @@ pub fn run() {
+             commands::create_envelope,
+             commands::update_envelope,
+             commands::delete_envelope,
++            commands::get_income_entries,
++            commands::create_income_entry,
++            commands::delete_income_entry,
++            commands::allocate_envelopes,
++            commands::borrow_from_envelope,
++            commands::get_transactions,
++            commands::create_transaction,
++            commands::update_transaction,
+         ])
+         .run(tauri::generate_context!())
+         .expect("error while running tauri application");
+diff --git a/src-tauri/src/migrations.rs b/src-tauri/src/migrations.rs
+index 9748b94..2c508f8 100644
+--- a/src-tauri/src/migrations.rs
++++ b/src-tauri/src/migrations.rs
+@@ -5,6 +5,9 @@ const MIGRATIONS: &[(i64, &str)] = &[
+     (1, include_str!("../migrations/001_initial_schema.sql")),
+     (2, include_str!("../migrations/002_add_budget_name_start_month.sql")),
+     (3, include_str!("../migrations/003_envelopes.sql")),
++    (4, include_str!("../migrations/004_income_entries.sql")),
++    (5, include_str!("../migrations/005_borrow_schema.sql")),
++    (6, include_str!("../migrations/006_transactions.sql")),
+ ];
+ 
+ const _: () = {
+@@ -67,7 +70,7 @@ mod tests {
+         let version: i64 = conn
+             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+             .unwrap();
+-        assert_eq!(version, 3, "schema_version should be 3 after all migrations");
++        assert_eq!(version, 6, "schema_version should be 6 after all migrations");
+     }
+ 
+     #[test]
+@@ -79,7 +82,7 @@ mod tests {
+         let version: i64 = conn
+             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+             .unwrap();
+-        assert_eq!(version, 3, "version should still be 3 after second run");
++        assert_eq!(version, 6, "version should still be 6 after second run");
+     }
+ 
+     #[test]
+diff --git a/src/lib/types.ts b/src/lib/types.ts
+index 0c5b49b..5a801e5 100644
+--- a/src/lib/types.ts
++++ b/src/lib/types.ts
+@@ -49,6 +49,7 @@ export interface Envelope {
+   allocatedCents: number;   // INTEGER cents — never display directly; use formatCurrency()
+   monthId: number | null;
+   createdAt: string;        // ISO 8601 UTC
++  isSavings: boolean;
+ }
+ 
+ // Input for create_envelope Tauri command.
+@@ -59,6 +60,7 @@ export interface CreateEnvelopeInput {
+   priority: EnvelopePriority;
+   allocatedCents: number;
+   monthId?: number | null;
++  isSavings?: boolean;
+ }
+ 
+ // Input for update_envelope Tauri command. All fields except id are optional.
+@@ -69,4 +71,68 @@ export interface UpdateEnvelopeInput {
+   priority?: EnvelopePriority;
+   allocatedCents?: number;
+   monthId?: number | null;
++  isSavings?: boolean;
++}
++
++// Income entry — mirrors the income_entries SQLite table row.
++export interface IncomeEntry {
++  id: number;
++  name: string;
++  amountCents: number;  // INTEGER cents — never display directly; use formatCurrency()
++}
++
++// Input for create_income_entry Tauri command.
++export interface CreateIncomeEntryInput {
++  name: string;
++  amountCents: number;
++}
++
++// Input for allocate_envelopes Tauri command.
++export interface AllocateEnvelopesInput {
++  allocations: { id: number; allocatedCents: number }[];
++}
++
++// Input for borrow_from_envelope Tauri command.
++export interface BorrowInput {
++  sourceEnvelopeId: number;
++  targetEnvelopeId: number;
++  amountCents: number;
++}
++
++// Result from borrow_from_envelope Tauri command.
++export interface BorrowResult {
++  source: Envelope;
++  target: Envelope;
++}
++
++// Transaction domain types — mirrors Rust Transaction struct in commands/mod.rs
++export interface Transaction {
++  id: number;
++  payee: string;
++  amountCents: number;         // INTEGER cents — never display directly; use formatCurrency()
++  date: string;                // ISO 8601 "YYYY-MM-DD"
++  envelopeId: number | null;   // null = uncategorized
++  isCleared: boolean;
++  importBatchId: string | null; // null = manually entered
++  createdAt: string;           // ISO 8601 UTC
++}
++
++// Input for create_transaction Tauri command.
++export interface CreateTransactionInput {
++  payee: string;
++  amountCents: number;
++  date: string;               // "YYYY-MM-DD"
++  envelopeId?: number | null;
++  isCleared?: boolean;        // defaults to false
++  importBatchId?: string | null;
++}
++
++// Input for update_transaction Tauri command. All fields except id are optional.
++export interface UpdateTransactionInput {
++  id: number;
++  payee?: string;
++  amountCents?: number;
++  date?: string;
++  envelopeId?: number | null;
++  isCleared?: boolean;
+ }
+diff --git a/src/router.tsx b/src/router.tsx
+index 41b13c1..df4055d 100644
+--- a/src/router.tsx
++++ b/src/router.tsx
+@@ -9,9 +9,13 @@ import RootLayout from './App';
+ import { useMonthStore } from '@/stores/useMonthStore';
+ import { useSettingsStore } from '@/stores/useSettingsStore';
+ import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
++import { useIncomeStore } from '@/stores/useIncomeStore';
++import { useTransactionStore } from '@/stores/useTransactionStore';
++import { pastTwelveMonths } from '@/lib/date-utils';
+ import OnboardingPage from '@/features/settings/OnboardingPage';
+ import SettingsPage from '@/features/settings/SettingsPage';
+ import BudgetPage from '@/features/envelopes/BudgetPage';
++import AllocationPage from '@/features/envelopes/AllocationPage';
+ 
+ // Guard: redirect to /onboarding if not yet onboarded.
+ // Uses getState() — not the hook — because hooks cannot be called outside React components.
+@@ -23,6 +27,15 @@ export function guardOnboarding() {
+   }
+ }
+ 
++// Guard: redirect to / if the app is in read-only mode (sentinel lock active).
++// Used to block the allocation route from read-only instances.
++function guardReadOnly() {
++  const { isReadOnly } = useSettingsStore.getState();
++  if (isReadOnly) {
++    throw redirect({ to: '/' });
++  }
++}
++
+ // Guard: redirect to /turn-the-month if month is in closing state.
+ // Called in beforeLoad of all routes except /turn-the-month itself (AC3).
+ function guardTurnTheMonth() {
+@@ -48,6 +61,9 @@ const rootRoute = createRootRoute({
+     await useSettingsStore.getState().loadSettings();
+     await useSettingsStore.getState().checkSentinel();
+     await useEnvelopeStore.getState().loadEnvelopes();
++    await useIncomeStore.getState().loadIncomeEntries();
++    const currentMonth = pastTwelveMonths()[0];
++    await useTransactionStore.getState().loadTransactions(currentMonth);
+   },
+ });
+ 
+@@ -109,6 +125,18 @@ const onboardingRoute = createRoute({
+   },
+ });
+ 
++// /budget/allocate — Monthly allocation flow
++const allocationRoute = createRoute({
++  getParentRoute: () => rootRoute,
++  path: '/budget/allocate',
++  component: AllocationPage,
++  beforeLoad: () => {
++    guardOnboarding();
++    guardTurnTheMonth();
++    guardReadOnly();
++  },
++});
++
+ // /turn-the-month
+ // Guard: redirect to / if NOT in closing state (no manual access)
+ const turnTheMonthRoute = createRoute({
+@@ -125,6 +153,7 @@ const turnTheMonthRoute = createRoute({
+ 
+ const routeTree = rootRoute.addChildren([
+   budgetRoute,
++  allocationRoute,
+   ledgerRoute,
+   merchantRulesRoute,
+   settingsRoute,
+diff --git a/src/stores/useTransactionStore.ts b/src/stores/useTransactionStore.ts
+index fb6f302..aaf788f 100644
+--- a/src/stores/useTransactionStore.ts
++++ b/src/stores/useTransactionStore.ts
+@@ -1,13 +1,81 @@
+ import { create } from 'zustand';
++import { invoke } from '@tauri-apps/api/core';
++import type { AppError, Transaction, CreateTransactionInput, UpdateTransactionInput } from '@/lib/types';
+ 
+ interface TransactionState {
+-  transactions: never[];   // typed properly in Story 3.1
+-  importQueue: never[];
++  transactions: Transaction[];
+   isWriting: boolean;
++  error: AppError | null;
++
++  // Computed views — derived from transactions, not separately stored
++  clearedTransactions: () => Transaction[];
++  unclearedTransactions: () => Transaction[];
++
++  // Actions
++  loadTransactions: (monthKey?: string) => Promise<void>;
++  createTransaction: (input: CreateTransactionInput) => Promise<void>;
++  updateTransaction: (input: UpdateTransactionInput) => Promise<void>;
+ }
+ 
+-export const useTransactionStore = create<TransactionState>(() => ({
++// Module-level counter for unique optimistic temp IDs
++let _tempIdCounter = 0;
++
++export const useTransactionStore = create<TransactionState>((set, get) => ({
+   transactions: [],
+-  importQueue: [],
+   isWriting: false,
++  error: null,
++
++  clearedTransactions: () => get().transactions.filter(t => t.isCleared),
++  unclearedTransactions: () => get().transactions.filter(t => !t.isCleared),
++
++  loadTransactions: async (monthKey?: string) => {
++    set({ isWriting: true, error: null });
++    try {
++      const transactions = await invoke<Transaction[]>('get_transactions', { monthKey });
++      set({ transactions });
++    } catch (err) {
++      set({ error: err as AppError });
++    } finally {
++      set({ isWriting: false });
++    }
++  },
++
++  createTransaction: async (input) => {
++    const tempId = --_tempIdCounter;
++    const tempTx: Transaction = {
++      id: tempId,
++      payee: input.payee,
++      amountCents: input.amountCents,
++      date: input.date,
++      envelopeId: input.envelopeId ?? null,
++      isCleared: input.isCleared ?? false,
++      importBatchId: input.importBatchId ?? null,
++      createdAt: new Date().toISOString(),
++    };
++    const prev = get().transactions;
++    set({ transactions: [...prev, tempTx], isWriting: true, error: null });
++    try {
++      const created = await invoke<Transaction>('create_transaction', { input });
++      set(state => ({
++        transactions: state.transactions.map(t => t.id === tempId ? created : t),
++        isWriting: false,
++      }));
++    } catch (err) {
++      set({ transactions: prev, isWriting: false, error: err as AppError });
++    }
++  },
++
++  updateTransaction: async (input) => {
++    const prev = get().transactions;
++    set({ isWriting: true, error: null });
++    try {
++      const updated = await invoke<Transaction>('update_transaction', { input });
++      set(state => ({
++        transactions: state.transactions.map(t => t.id === updated.id ? updated : t),
++        isWriting: false,
++      }));
++    } catch (err) {
++      set({ transactions: prev, isWriting: false, error: err as AppError });
++    }
++  },
+ }));
+warning: in the working copy of 'src/stores/useTransactionStore.test.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/src/stores/useTransactionStore.test.ts b/src/stores/useTransactionStore.test.ts
+new file mode 100644
+index 0000000..f173b7f
+--- /dev/null
++++ b/src/stores/useTransactionStore.test.ts
+@@ -0,0 +1,190 @@
++import { vi, describe, it, expect, beforeEach } from 'vitest';
++import { useTransactionStore } from './useTransactionStore';
++import type { Transaction } from '@/lib/types';
++
++// Mock Tauri invoke so tests don't require a running Tauri backend
++vi.mock('@tauri-apps/api/core', () => ({
++  invoke: vi.fn(),
++}));
++
++import { invoke } from '@tauri-apps/api/core';
++const mockInvoke = vi.mocked(invoke);
++
++const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
++  id: 1,
++  payee: 'Grocery Store',
++  amountCents: 5000,
++  date: '2026-04-05',
++  envelopeId: null,
++  isCleared: false,
++  importBatchId: null,
++  createdAt: '2026-04-05T10:00:00Z',
++  ...overrides,
++});
++
++describe('useTransactionStore', () => {
++  beforeEach(() => {
++    useTransactionStore.setState({ transactions: [], isWriting: false, error: null });
++    vi.clearAllMocks();
++  });
++
++  it('initial state has transactions: [], isWriting: false, error: null', () => {
++    expect(useTransactionStore.getState().transactions).toEqual([]);
++    expect(useTransactionStore.getState().isWriting).toBe(false);
++    expect(useTransactionStore.getState().error).toBeNull();
++  });
++
++  describe('clearedTransactions / unclearedTransactions', () => {
++    it('returns correct filtered views', () => {
++      const cleared = makeTx({ id: 1, isCleared: true });
++      const uncleared = makeTx({ id: 2, isCleared: false });
++      useTransactionStore.setState({ transactions: [cleared, uncleared] });
++
++      expect(useTransactionStore.getState().clearedTransactions()).toEqual([cleared]);
++      expect(useTransactionStore.getState().unclearedTransactions()).toEqual([uncleared]);
++    });
++  });
++
++  describe('loadTransactions', () => {
++    it('populates transactions and clears isWriting on success', async () => {
++      const mockTxs = [makeTx()];
++      mockInvoke.mockResolvedValueOnce(mockTxs);
++
++      await useTransactionStore.getState().loadTransactions('2026-04');
++
++      const { transactions, isWriting, error } = useTransactionStore.getState();
++      expect(transactions).toEqual(mockTxs);
++      expect(isWriting).toBe(false);
++      expect(error).toBeNull();
++    });
++
++    it('sets error and clears isWriting on failure', async () => {
++      mockInvoke.mockRejectedValueOnce({ code: 'DB_ERROR', message: 'oops' });
++
++      await useTransactionStore.getState().loadTransactions('2026-04');
++
++      const { transactions, isWriting, error } = useTransactionStore.getState();
++      expect(transactions).toEqual([]);
++      expect(isWriting).toBe(false);
++      expect(error).toEqual({ code: 'DB_ERROR', message: 'oops' });
++    });
++
++    it('calls invoke with monthKey when provided', async () => {
++      mockInvoke.mockResolvedValueOnce([]);
++
++      await useTransactionStore.getState().loadTransactions('2026-04');
++
++      expect(mockInvoke).toHaveBeenCalledWith('get_transactions', { monthKey: '2026-04' });
++    });
++
++    it('calls invoke with undefined monthKey when not provided', async () => {
++      mockInvoke.mockResolvedValueOnce([]);
++
++      await useTransactionStore.getState().loadTransactions();
++
++      expect(mockInvoke).toHaveBeenCalledWith('get_transactions', { monthKey: undefined });
++    });
++  });
++
++  describe('createTransaction', () => {
++    it('optimistically adds transaction, then replaces with DB response', async () => {
++      const created = makeTx({ id: 42, payee: 'Coffee Shop', amountCents: 500 });
++      mockInvoke.mockResolvedValueOnce(created);
++
++      await useTransactionStore.getState().createTransaction({
++        payee: 'Coffee Shop',
++        amountCents: 500,
++        date: '2026-04-06',
++      });
++
++      const { transactions, isWriting, error } = useTransactionStore.getState();
++      expect(transactions).toHaveLength(1);
++      expect(transactions[0]).toEqual(created);
++      expect(isWriting).toBe(false);
++      expect(error).toBeNull();
++    });
++
++    it('shows optimistic entry immediately before invoke resolves', async () => {
++      let resolveInvoke!: (value: Transaction) => void;
++      mockInvoke.mockReturnValueOnce(new Promise((res) => { resolveInvoke = res; }) as Promise<unknown>);
++
++      const promise = useTransactionStore.getState().createTransaction({
++        payee: 'Pending Payee',
++        amountCents: 1000,
++        date: '2026-04-07',
++      });
++
++      // Before resolve: optimistic entry present with a temp negative id
++      const { transactions: before } = useTransactionStore.getState();
++      expect(before).toHaveLength(1);
++      expect(before[0]!.id).toBeLessThan(0);
++      expect(before[0]!.payee).toBe('Pending Payee');
++
++      resolveInvoke(makeTx({ id: 99, payee: 'Pending Payee', amountCents: 1000 }));
++      await promise;
++
++      // After resolve: temp entry replaced with real id
++      expect(useTransactionStore.getState().transactions[0]!.id).toBe(99);
++    });
++
++    it('rolls back on failure and sets error', async () => {
++      const existing = makeTx({ id: 1 });
++      useTransactionStore.setState({ transactions: [existing] });
++      mockInvoke.mockRejectedValueOnce({ code: 'DB_ERROR', message: 'fail' });
++
++      await useTransactionStore.getState().createTransaction({
++        payee: 'Bad',
++        amountCents: 0,
++        date: '2026-04-07',
++      });
++
++      const { transactions, error } = useTransactionStore.getState();
++      expect(transactions).toEqual([existing]);
++      expect(error).toEqual({ code: 'DB_ERROR', message: 'fail' });
++    });
++
++    it('sets isCleared false and envelopeId null by default on optimistic entry', async () => {
++      mockInvoke.mockReturnValueOnce(new Promise(() => {})); // never resolves
++
++      useTransactionStore.getState().createTransaction({
++        payee: 'Test',
++        amountCents: 100,
++        date: '2026-04-07',
++      });
++
++      const tx = useTransactionStore.getState().transactions[0]!;
++      expect(tx.isCleared).toBe(false);
++      expect(tx.envelopeId).toBeNull();
++      expect(tx.importBatchId).toBeNull();
++    });
++  });
++
++  describe('updateTransaction', () => {
++    it('replaces the updated transaction in the list on success', async () => {
++      const original = makeTx({ id: 5, payee: 'Old Payee', isCleared: false });
++      const updated = makeTx({ id: 5, payee: 'New Payee', isCleared: true });
++      useTransactionStore.setState({ transactions: [original] });
++      mockInvoke.mockResolvedValueOnce(updated);
++
++      await useTransactionStore.getState().updateTransaction({ id: 5, payee: 'New Payee', isCleared: true });
++
++      const { transactions, isWriting, error } = useTransactionStore.getState();
++      expect(transactions).toHaveLength(1);
++      expect(transactions[0]).toEqual(updated);
++      expect(isWriting).toBe(false);
++      expect(error).toBeNull();
++    });
++
++    it('rolls back on failure and sets error', async () => {
++      const original = makeTx({ id: 5 });
++      useTransactionStore.setState({ transactions: [original] });
++      mockInvoke.mockRejectedValueOnce({ code: 'TRANSACTION_NOT_FOUND', message: 'not found' });
++
++      await useTransactionStore.getState().updateTransaction({ id: 5, payee: 'Ghost' });
++
++      const { transactions, error } = useTransactionStore.getState();
++      expect(transactions).toEqual([original]);
++      expect(error).toEqual({ code: 'TRANSACTION_NOT_FOUND', message: 'not found' });
++    });
++  });
++});

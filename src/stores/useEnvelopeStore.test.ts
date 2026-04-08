@@ -18,12 +18,13 @@ const makeEnvelope = (overrides: Partial<Envelope> = {}): Envelope => ({
   allocatedCents: 50000,
   monthId: null,
   createdAt: '2026-01-01T00:00:00Z',
+  isSavings: false,
   ...overrides,
 });
 
 describe('useEnvelopeStore', () => {
   beforeEach(() => {
-    useEnvelopeStore.setState({ envelopes: [], isWriting: false, error: null });
+    useEnvelopeStore.setState({ envelopes: [], isWriting: false, error: null, borrowError: null });
     vi.clearAllMocks();
   });
 
@@ -208,6 +209,72 @@ describe('useEnvelopeStore', () => {
       expect(envelopes[0]).toEqual(e1);
       expect(isWriting).toBe(false);
       expect(error).toEqual({ code: 'ENVELOPE_NOT_FOUND', message: 'not found' });
+    });
+  });
+
+  describe('borrowFromEnvelope', () => {
+    it('optimistic update applies source reduction and target increase immediately', async () => {
+      const source = makeEnvelope({ id: 1, name: 'Vacation', allocatedCents: 50000 });
+      const target = makeEnvelope({ id: 2, name: 'Car Repair', allocatedCents: 0 });
+      useEnvelopeStore.setState({ envelopes: [source, target] });
+
+      let resolveInvoke!: (value: unknown) => void;
+      mockInvoke.mockReturnValue(new Promise((res) => { resolveInvoke = res; }));
+
+      const borrowPromise = useEnvelopeStore.getState().borrowFromEnvelope({
+        sourceEnvelopeId: 1,
+        targetEnvelopeId: 2,
+        amountCents: 20000,
+      });
+
+      const { envelopes } = useEnvelopeStore.getState();
+      expect(envelopes.find((e) => e.id === 1)?.allocatedCents).toBe(30000);
+      expect(envelopes.find((e) => e.id === 2)?.allocatedCents).toBe(20000);
+
+      resolveInvoke({ source, target });
+      await borrowPromise;
+    });
+
+    it('replaces source and target with authoritative DB response on success', async () => {
+      const source = makeEnvelope({ id: 1, name: 'Vacation', allocatedCents: 50000 });
+      const target = makeEnvelope({ id: 2, name: 'Car Repair', allocatedCents: 0 });
+      useEnvelopeStore.setState({ envelopes: [source, target] });
+
+      const dbSource = makeEnvelope({ id: 1, name: 'Vacation', allocatedCents: 30000 });
+      const dbTarget = makeEnvelope({ id: 2, name: 'Car Repair', allocatedCents: 20000 });
+      mockInvoke.mockResolvedValue({ source: dbSource, target: dbTarget });
+
+      await useEnvelopeStore.getState().borrowFromEnvelope({
+        sourceEnvelopeId: 1,
+        targetEnvelopeId: 2,
+        amountCents: 20000,
+      });
+
+      const { envelopes, isWriting, borrowError } = useEnvelopeStore.getState();
+      expect(envelopes.find((e) => e.id === 1)).toEqual(dbSource);
+      expect(envelopes.find((e) => e.id === 2)).toEqual(dbTarget);
+      expect(isWriting).toBe(false);
+      expect(borrowError).toBeNull();
+    });
+
+    it('rolls back and sets borrowError on failure', async () => {
+      const source = makeEnvelope({ id: 1, name: 'Vacation', allocatedCents: 50000 });
+      const target = makeEnvelope({ id: 2, name: 'Car Repair', allocatedCents: 0 });
+      useEnvelopeStore.setState({ envelopes: [source, target] });
+
+      mockInvoke.mockRejectedValue({ code: 'INSUFFICIENT_BALANCE', message: 'Not enough balance.' });
+
+      await useEnvelopeStore.getState().borrowFromEnvelope({
+        sourceEnvelopeId: 1,
+        targetEnvelopeId: 2,
+        amountCents: 100000,
+      });
+
+      const { envelopes, isWriting, borrowError } = useEnvelopeStore.getState();
+      expect(envelopes.find((e) => e.id === 1)?.allocatedCents).toBe(50000);
+      expect(envelopes.find((e) => e.id === 2)?.allocatedCents).toBe(0);
+      expect(isWriting).toBe(false);
+      expect(borrowError).toEqual({ code: 'INSUFFICIENT_BALANCE', message: 'Not enough balance.' });
     });
   });
 });
