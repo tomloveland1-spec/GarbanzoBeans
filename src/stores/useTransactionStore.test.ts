@@ -10,6 +10,14 @@ vi.mock('@tauri-apps/api/core', () => ({
 import { invoke } from '@tauri-apps/api/core';
 const mockInvoke = vi.mocked(invoke);
 
+// Mock useMerchantRuleStore so importOFX tests can assert loadRules is called
+const mockLoadRules = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/stores/useMerchantRuleStore', () => ({
+  useMerchantRuleStore: {
+    getState: () => ({ loadRules: mockLoadRules }),
+  },
+}));
+
 const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
   id: 1,
   payee: 'Grocery Store',
@@ -26,6 +34,7 @@ describe('useTransactionStore', () => {
   beforeEach(() => {
     useTransactionStore.setState({ transactions: [], isWriting: false, error: null, importResult: null, importError: null });
     vi.clearAllMocks();
+    mockLoadRules.mockClear();
   });
 
   it('initial state has transactions: [], isWriting: false, error: null', () => {
@@ -291,6 +300,24 @@ describe('useTransactionStore', () => {
       expect(transactions).toHaveLength(2);
       expect(transactions.find(t => t.id === 5)!.isCleared).toBe(true);
       expect(transactions.find(t => t.id === 10)).toBeDefined();
+    });
+
+    describe('merchant rule refresh (AC1)', () => {
+      it('calls loadRules after a successful import so match_count stays current', async () => {
+        mockInvoke.mockResolvedValueOnce(makeImportResult());
+
+        await useTransactionStore.getState().importOFX('/path/to/file.ofx');
+
+        expect(mockLoadRules).toHaveBeenCalledOnce();
+      });
+
+      it('does NOT call loadRules when the import fails', async () => {
+        mockInvoke.mockRejectedValueOnce({ code: 'OFX_PARSE_ERROR', message: 'bad file' });
+
+        await useTransactionStore.getState().importOFX('/path/to/bad.ofx');
+
+        expect(mockLoadRules).not.toHaveBeenCalled();
+      });
     });
   });
 

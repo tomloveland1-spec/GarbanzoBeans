@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-08  # story 4-4 done
+last_updated: 2026-04-09  # story 7-2 story file created
 project: GarbanzoBeans
 project_key: NOKEY
 tracking_system: file-system
@@ -85,27 +85,37 @@ development_status:
   4-2-auto-categorization-on-import: done
   4-3-unknown-merchant-queue-manual-categorization: done
   4-4-substring-rule-builder-creating-rules-inline: done
-  4-5-rule-application-forward-only-on-future-imports: backlog
-  4-6-merchant-rules-screen-view-edit-delete: backlog
+  4-5-rule-application-forward-only-on-future-imports: done
+  4-6-merchant-rules-screen-view-edit-delete: done
   epic-4-retrospective: optional
 
   # ── Epic 5: Savings & Wealth Tracking — Runway Always in View ──
-  epic-5: backlog
-  5-1-savings-schema-two-metric-data-model: backlog
-  5-2-savings-category-distinct-visual-treatment: backlog
-  5-3-savings-balance-bootstrap-and-reconciliation: backlog
-  5-4-runway-metric-derive-and-display: backlog
-  5-5-arc-gauge-runway-visualized: backlog
-  5-6-savings-flow-chart-monthly-trend: backlog
-  5-7-wealth-panel-persistent-on-main-screen: backlog
+  epic-5: in-progress
+  5-1-savings-schema-two-metric-data-model: done
+  5-2-savings-category-distinct-visual-treatment: done
+  5-3-savings-balance-bootstrap-and-reconciliation: done
+  5-4-runway-metric-derive-and-display: done
+  5-5-arc-gauge-runway-visualized: done
+  5-6-savings-flow-chart-monthly-trend: done
+  5-7-wealth-panel-persistent-on-main-screen: done
   epic-5-retrospective: optional
 
   # ── Epic 6: Turn the Month — The Monthly Ceremony ──
-  epic-6: backlog
-  6-1-month-lifecycle-schema-state-machine: backlog
-  6-2-turn-the-month-mode-gate: backlog
-  6-3-closeout-summary-last-month-in-review: backlog
-  6-4-bill-date-confirmation: backlog
-  6-5-income-timing-confirmation: backlog
-  6-6-guided-envelope-fill-opening-the-new-month: backlog
+  epic-6: in-progress
+  6-1-month-lifecycle-schema-state-machine: done
+  6-2-turn-the-month-mode-gate: done
+  6-3-closeout-summary-last-month-in-review: done
+  6-4-bill-date-confirmation: done
+  6-5-income-timing-confirmation: done
+  6-6-guided-envelope-fill-opening-the-new-month: done
   epic-6-retrospective: optional
+
+  # ── Epic 7: Polish & Deferred Work — The App Earns Daily Use ──
+  epic-7: in-progress
+  7-1-launch-and-global-ui-polish: done
+  7-2-read-only-mode-enforcement: ready-for-dev
+  7-3-settings-screen-completeness: backlog
+  7-4-envelope-card-and-actions-completeness: backlog
+  7-5-turn-the-month-graceful-escape: backlog
+  7-6-onboarding-ux-uplift: backlog
+  epic-7-retrospective: optional

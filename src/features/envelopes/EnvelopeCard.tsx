@@ -230,6 +230,15 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
             <DropdownMenuItem onClick={handleEditOpen}>
               Edit
             </DropdownMenuItem>
+            {!envelope.isSavings && (
+              <DropdownMenuItem
+                onClick={() =>
+                  useEnvelopeStore.getState().updateEnvelope({ id: envelope.id, isSavings: true })
+                }
+              >
+                Set as Savings
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => setIsDeleteOpen(true)}>
               Delete
             </DropdownMenuItem>

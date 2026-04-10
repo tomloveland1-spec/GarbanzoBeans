@@ -180,3 +180,103 @@ export interface UpdateMerchantRuleInput {
   payeeSubstring?: string;
   envelopeId?: number;
 }
+
+// Savings sign convention (3-layer enforcement):
+// negative amount_cents = deposit to savings (outflow from checking)
+// positive amount_cents = withdrawal from savings (inflow to checking)
+export const SAVINGS_DEPOSIT_SIGN = -1 as const;
+
+// Savings reconciliation — mirrors the savings_reconciliations SQLite table row.
+// User enters their real account balance; app calculates delta automatically.
+export interface SavingsReconciliation {
+  id: number;
+  date: string;                         // ISO 8601 "YYYY-MM-DD"
+  enteredBalanceCents: number;          // user's actual savings balance at reconciliation
+  previousTrackedBalanceCents: number;  // app's tracked balance before this reconciliation
+  deltaCents: number;                   // enteredBalanceCents - previousTrackedBalanceCents
+  note: string | null;                  // optional user annotation
+}
+
+// Monthly savings flow aggregation — returned by get_savings_flow_by_month Tauri command.
+// net_flow_cents: positive = net deposit (money into savings), negative = net withdrawal.
+export interface SavingsFlowMonth {
+  month: string;          // "YYYY-MM"
+  netFlowCents: number;
+}
+
+// Month record — mirrors the `months` SQLite table row.
+// status uses MonthStatus type defined above.
+export interface Month {
+  id: number;
+  year: number;
+  month: number;       // 1–12
+  status: MonthStatus; // 'open' | 'closed' | `closing:${number}`
+  openedAt: string;    // ISO 8601 UTC
+  closedAt: string | null;
+}
+
+// Input for advance_turn_the_month_step Tauri command.
+export interface AdvanceTurnTheMonthStepInput {
+  monthId: number;
+  currentStep: number;  // the step that is completing; status advances to closing:step-(currentStep+1)
+}
+
+// Input for close_month Tauri command.
+export interface CloseMonthInput {
+  monthId: number;
+  allocations: Array<{ id: number; allocatedCents: number }>;
+}
+
+// Input for get_closeout_summary Tauri command.
+export interface CloseoutSummaryInput {
+  monthId: number;
+}
+
+// Returned by get_closeout_summary Tauri command.
+export interface CloseoutSummary {
+  totalAllocatedCents: number;    // sum of allocated_cents for all non-savings envelopes
+  totalSpentCents: number;        // SUM(-amount_cents) for non-savings txs in month
+  stayedInBudget: boolean;        // totalSpentCents <= totalAllocatedCents
+  overspendCents: number;         // 0 when in budget; totalSpentCents - totalAllocatedCents when over
+  savingsFlowCents: number;       // positive = deposited this month, negative = withdrew
+  driftEnvelopeName: string | null; // first envelope over budget 2+ months, or null
+}
+
+// Returned by get_bill_date_suggestions — one entry per Bill envelope.
+export interface BillDateSuggestion {
+  envelopeId: number;
+  envelopeName: string;
+  dueDay: number | null;  // day of month (1–31), null = no historical record
+}
+
+// Single bill date entry — used in ConfirmBillDatesInput.
+export interface BillDateEntry {
+  envelopeId: number;
+  dueDay: number | null;  // Some = upsert; null = delete existing record
+}
+
+// Input for confirm_bill_dates Tauri command.
+export interface ConfirmBillDatesInput {
+  monthId: number;
+  dates: BillDateEntry[];
+}
+
+// Returned by get_income_timing_suggestions — one entry per pay date.
+export interface IncomeTimingSuggestion {
+  payDate: string;        // ISO 'YYYY-MM-DD' in the new month
+  amountCents: number;    // expected income for this pay date (cents)
+  label: string | null;   // e.g. "Paycheck 1", null if single payday
+}
+
+// Single income timing entry — used in ConfirmIncomeTimingInput.
+export interface IncomeTimingEntry {
+  payDate: string;
+  amountCents: number;
+  label: string | null;
+}
+
+// Input for confirm_income_timing Tauri command.
+export interface ConfirmIncomeTimingInput {
+  monthId: number;
+  entries: IncomeTimingEntry[];  // may be empty if no income configured
+}

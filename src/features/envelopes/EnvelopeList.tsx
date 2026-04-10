@@ -5,12 +5,16 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import EnvelopeCard from './EnvelopeCard';
 import AddEnvelopeForm from './AddEnvelopeForm';
+import SavingsCard from '@/components/gb/SavingsCard';
 
 export default function EnvelopeList() {
   const navigate = useNavigate();
   const { envelopes, isWriting, error } = useEnvelopeStore();
   const isReadOnly = useSettingsStore((s) => s.isReadOnly);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  const savingsEnvelopes = envelopes.filter((e) => e.isSavings);
+  const regularEnvelopes = envelopes.filter((e) => !e.isSavings);
 
   return (
     <div className="flex flex-col gap-2 p-4">
@@ -23,7 +27,21 @@ export default function EnvelopeList() {
         </p>
       )}
 
-      {envelopes.map((envelope) => (
+      {savingsEnvelopes.length > 0 && (
+        <>
+          <span
+            className="type-label"
+            style={{ color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+          >
+            Savings
+          </span>
+          {savingsEnvelopes.map((envelope) => (
+            <SavingsCard key={envelope.id} envelope={envelope} />
+          ))}
+        </>
+      )}
+
+      {regularEnvelopes.map((envelope) => (
         <EnvelopeCard key={envelope.id} envelope={envelope} />
       ))}
 

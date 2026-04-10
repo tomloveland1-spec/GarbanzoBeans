@@ -163,6 +163,22 @@ describe('useEnvelopeStore', () => {
       expect(error).toEqual({ code: 'ENVELOPE_NOT_FOUND', message: 'not found' });
     });
 
+    it('sets error field when backend rejects with SAVINGS_ALREADY_DESIGNATED', async () => {
+      const savings = makeEnvelope({ id: 1, name: 'ING Savings', isSavings: true });
+      const other = makeEnvelope({ id: 2, name: 'Emergency Fund', isSavings: false });
+      useEnvelopeStore.setState({ envelopes: [savings, other] });
+
+      mockInvoke.mockRejectedValue({ code: 'SAVINGS_ALREADY_DESIGNATED', message: 'Another envelope is already designated as savings.' });
+
+      await useEnvelopeStore.getState().updateEnvelope({ id: 2, isSavings: true });
+
+      const { envelopes, isWriting, error } = useEnvelopeStore.getState();
+      expect(error).toEqual({ code: 'SAVINGS_ALREADY_DESIGNATED', message: 'Another envelope is already designated as savings.' });
+      expect(isWriting).toBe(false);
+      // Rollback: other envelope isSavings remains false
+      expect(envelopes.find((e) => e.id === 2)?.isSavings).toBe(false);
+    });
+
     it('rejects float allocatedCents without invoking', async () => {
       const original = makeEnvelope({ id: 1, allocatedCents: 50000 });
       useEnvelopeStore.setState({ envelopes: [original] });

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppError, Transaction, CreateTransactionInput, UpdateTransactionInput, ImportResult } from '@/lib/types';
+import { useMerchantRuleStore } from '@/stores/useMerchantRuleStore';
+import { useSavingsStore } from '@/stores/useSavingsStore';
 
 interface TransactionState {
   transactions: Transaction[];
@@ -86,6 +88,12 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
           isWriting: false,
         };
       });
+      // Refresh merchant rules store so match_count and last_matched_at reflect the import.
+      // Only called on success — failed imports do not update rule stats in the DB.
+      // .catch(() => {}) ensures a loadRules failure never corrupts successful import state.
+      await useMerchantRuleStore.getState().loadRules().catch(() => {});
+      // Refresh savings flow chart if any imported transactions hit a savings envelope.
+      await useSavingsStore.getState().loadMonthlyFlow().catch(() => {});
     } catch (err) {
       const message = typeof err === 'string' ? err : (err as AppError).message ?? String(err);
       set({ importError: message, isWriting: false });

@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::DbState;
 use tauri::State;
+use rusqlite::OptionalExtension;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -350,6 +351,20 @@ fn update_envelope_inner(
             return Err(AppError {
                 code: "INVALID_ALLOCATED_CENTS".to_string(),
                 message: "allocated_cents cannot be negative.".to_string(),
+            });
+        }
+    }
+
+    if let Some(true) = input.is_savings {
+        let already: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM envelopes WHERE is_savings = 1 AND id != ?1",
+            rusqlite::params![input.id],
+            |row| row.get(0),
+        )?;
+        if already > 0 {
+            return Err(AppError {
+                code: "SAVINGS_ALREADY_DESIGNATED".to_string(),
+                message: "Another envelope is already designated as savings. Remove that designation first.".to_string(),
             });
         }
     }
@@ -2570,6 +2585,2317 @@ pub fn delete_merchant_rule(state: State<DbState>, id: i64) -> Result<(), AppErr
     delete_merchant_rule_inner(&conn, id)
 }
 
+// --- Savings reconciliation structs ---
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavingsReconciliation {
+    pub id: i64,
+    pub date: String,                           // ISO 8601 "YYYY-MM-DD"
+    pub entered_balance_cents: i64,             // user's actual savings balance
+    pub previous_tracked_balance_cents: i64,    // app's tracked balance before this reconciliation
+    pub delta_cents: i64,                       // entered_balance_cents - previous_tracked_balance_cents
+    pub note: Option<String>,                   // nullable user annotation
+}
+
+// --- Savings reconciliation commands ---
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavingsFlowMonth {
+    pub month: String,          // "YYYY-MM"
+    pub net_flow_cents: i64,    // positive = net deposit; negative = net withdrawal
+}
+
+fn map_savings_reconciliation_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SavingsReconciliation> {
+    Ok(SavingsReconciliation {
+        id: row.get(0)?,
+        date: row.get(1)?,
+        entered_balance_cents: row.get(2)?,
+        previous_tracked_balance_cents: row.get(3)?,
+        delta_cents: row.get(4)?,
+        note: row.get(5)?,
+    })
+}
+
+fn get_savings_reconciliations_inner(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<SavingsReconciliation>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note \
+         FROM savings_reconciliations ORDER BY date ASC, id ASC",
+    )?;
+    let rows = stmt
+        .query_map([], map_savings_reconciliation_row)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::from)?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn get_savings_reconciliations(
+    state: State<DbState>,
+) -> Result<Vec<SavingsReconciliation>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_savings_reconciliations_inner(&conn)
+}
+
+fn record_reconciliation_inner(
+    conn: &rusqlite::Connection,
+    entered_balance_cents: i64,
+    note: Option<String>,
+) -> Result<SavingsReconciliation, AppError> {
+    // Enforce sign convention: reconciliation balance must be non-negative
+    if entered_balance_cents < 0 {
+        return Err(AppError {
+            code: "INVALID_ENTERED_BALANCE".to_string(),
+            message: "entered_balance_cents must be >= 0.".to_string(),
+        });
+    }
+
+    let tx = conn.unchecked_transaction()?;
+
+    // Fetch most recent reconciliation date and balance (0/'0000-00-00' if no prior reconciliations)
+    let (prev_date, prev_balance): (String, i64) = match tx.query_row(
+        "SELECT date, entered_balance_cents FROM savings_reconciliations ORDER BY date DESC, id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ) {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => ("0000-00-00".to_string(), 0),
+        Err(e) => return Err(AppError::from(e)),
+    };
+
+    // Sum savings transaction deltas since last reconciliation date (inclusive — matches frontend)
+    let tx_delta: i64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(-t.amount_cents), 0) FROM transactions t \
+             JOIN envelopes e ON t.envelope_id = e.id \
+             WHERE e.is_savings = 1 AND t.date >= ?1",
+            rusqlite::params![prev_date],
+            |row| row.get(0),
+        )?;
+
+    let previous_tracked_balance_cents = prev_balance + tx_delta;
+    let delta_cents = entered_balance_cents - previous_tracked_balance_cents;
+
+    tx.execute(
+        "INSERT INTO savings_reconciliations \
+         (date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note) \
+         VALUES (date('now'), ?1, ?2, ?3, ?4)",
+        rusqlite::params![entered_balance_cents, previous_tracked_balance_cents, delta_cents, note],
+    )?;
+
+    let id = tx.last_insert_rowid();
+    let row = tx.query_row(
+        "SELECT id, date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note \
+         FROM savings_reconciliations WHERE id = ?1",
+        rusqlite::params![id],
+        map_savings_reconciliation_row,
+    )?;
+
+    tx.commit()?;
+    Ok(row)
+}
+
+#[tauri::command]
+pub fn record_reconciliation(
+    state: State<DbState>,
+    entered_balance_cents: i64,
+    note: Option<String>,
+) -> Result<SavingsReconciliation, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    record_reconciliation_inner(&conn, entered_balance_cents, note)
+}
+
+fn get_savings_transactions_since_inner(
+    conn: &rusqlite::Connection,
+    since_date: &str,
+) -> Result<Vec<Transaction>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.payee, t.amount_cents, t.date, t.envelope_id, \
+         t.is_cleared, t.import_batch_id, t.created_at \
+         FROM transactions t \
+         JOIN envelopes e ON t.envelope_id = e.id \
+         WHERE e.is_savings = 1 AND t.date >= ?1 \
+         ORDER BY t.date ASC",
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![since_date], map_transaction_row)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::from)?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn get_savings_transactions_since(
+    state: State<DbState>,
+    since_date: String,
+) -> Result<Vec<Transaction>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_savings_transactions_since_inner(&conn, &since_date)
+}
+
+fn get_avg_monthly_essential_spend_cents_inner(
+    conn: &rusqlite::Connection,
+) -> Result<i64, AppError> {
+    let avg: i64 = conn.query_row(
+        "SELECT CAST(COALESCE(AVG(monthly_spend_cents), 0) AS INTEGER) \
+         FROM ( \
+           SELECT strftime('%Y-%m', t.date) AS month, \
+                  SUM(-t.amount_cents) AS monthly_spend_cents \
+           FROM transactions t \
+           JOIN envelopes e ON t.envelope_id = e.id \
+           WHERE e.priority = 'Need' AND e.is_savings = 0 \
+           GROUP BY strftime('%Y-%m', t.date) \
+           HAVING SUM(-t.amount_cents) > 0 \
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(avg)
+}
+
+#[tauri::command]
+pub fn get_avg_monthly_essential_spend_cents(
+    state: State<DbState>,
+) -> Result<i64, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_avg_monthly_essential_spend_cents_inner(&conn)
+}
+
+fn get_savings_flow_by_month_inner(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<SavingsFlowMonth>, AppError> {
+    // Returns monthly net savings flow for the last 6 calendar months (inclusive of current).
+    // Sign: SUM(-amount_cents) → positive = deposit to savings (money going in).
+    // date filter: first day of the month 5 months ago → covers 6 months total.
+    let mut stmt = conn.prepare(
+        "SELECT strftime('%Y-%m', t.date) AS month, \
+                SUM(-t.amount_cents) AS net_flow_cents \
+         FROM transactions t \
+         JOIN envelopes e ON t.envelope_id = e.id \
+         WHERE e.is_savings = 1 \
+           AND t.date >= date('now', 'start of month', '-5 months') \
+         GROUP BY strftime('%Y-%m', t.date) \
+         ORDER BY month ASC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(SavingsFlowMonth {
+                month: row.get(0)?,
+                net_flow_cents: row.get(1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::from)?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn get_savings_flow_by_month(
+    state: State<DbState>,
+) -> Result<Vec<SavingsFlowMonth>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_savings_flow_by_month_inner(&conn)
+}
+
+// ─── Month lifecycle structs ───────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Month {
+    pub id: i64,
+    pub year: i64,
+    pub month: i64,
+    pub status: String,
+    pub opened_at: String,
+    pub closed_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvanceTurnTheMonthStepInput {
+    pub month_id: i64,
+    pub current_step: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseMonthInput {
+    pub month_id: i64,
+    pub allocations: Vec<AllocationItem>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeginTurnTheMonthInput {
+    pub month_id: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseoutSummaryInput {
+    pub month_id: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseoutSummary {
+    /// Sum of allocated_cents for all non-savings envelopes.
+    pub total_allocated_cents: i64,
+    /// Net spend for non-savings envelopes in the closing month.
+    /// SUM(-amount_cents) for transactions in month date range — positive = money spent.
+    /// Can be negative if refunds exceed charges (rare, but valid).
+    pub total_spent_cents: i64,
+    /// true when total_spent_cents <= total_allocated_cents.
+    pub stayed_in_budget: bool,
+    /// max(0, total_spent_cents - total_allocated_cents). 0 when in budget.
+    pub overspend_cents: i64,
+    /// Net savings flow for the month: SUM(-amount_cents) for savings envelope transactions.
+    /// Positive = deposit (money going into savings), negative = withdrawal.
+    pub savings_flow_cents: i64,
+    /// Name of the first envelope found to be over budget 2+ consecutive months, if any.
+    pub drift_envelope_name: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillDateSuggestion {
+    /// Envelope id
+    pub envelope_id: i64,
+    /// Envelope display name
+    pub envelope_name: String,
+    /// Day of month the bill is due (1–31), or None if no record in bill_due_dates
+    pub due_day: Option<i32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillDateEntry {
+    pub envelope_id: i64,
+    /// Some(day) → upsert; None → delete existing record for this envelope
+    pub due_day: Option<i32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmBillDatesInput {
+    pub month_id: i64,
+    /// Full list of Bill envelopes with their new or unchanged due days
+    pub dates: Vec<BillDateEntry>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomeTimingSuggestion {
+    /// ISO 'YYYY-MM-DD' date in the NEW (upcoming) month
+    pub pay_date: String,
+    /// Expected income amount in cents for this pay date
+    pub amount_cents: i64,
+    /// Optional label (e.g., "Paycheck 1", "Paycheck 2")
+    pub label: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncomeTimingEntry {
+    pub pay_date: String,
+    pub amount_cents: i64,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmIncomeTimingInput {
+    pub month_id: i64,
+    /// Full list of pay dates for the new month (may be empty if no income configured)
+    pub entries: Vec<IncomeTimingEntry>,
+}
+
+fn days_in_month(year: i32, month: i32) -> i32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            // Leap year: divisible by 4, except centuries unless divisible by 400
+            if year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) { 29 } else { 28 }
+        }
+        _ => 31,
+    }
+}
+
+fn row_to_month(row: &rusqlite::Row<'_>) -> rusqlite::Result<Month> {
+    Ok(Month {
+        id: row.get(0)?,
+        year: row.get(1)?,
+        month: row.get(2)?,
+        status: row.get(3)?,
+        opened_at: row.get(4)?,
+        closed_at: row.get(5)?,
+    })
+}
+
+fn get_current_month_inner(conn: &rusqlite::Connection) -> Result<Option<Month>, AppError> {
+    // "Current" = the most recently opened month that is not closed.
+    let result = conn.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at \
+         FROM months \
+         WHERE status != 'closed' \
+         ORDER BY year DESC, month DESC \
+         LIMIT 1",
+        [],
+        row_to_month,
+    );
+    match result {
+        Ok(m) => Ok(Some(m)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(AppError::from(e)),
+    }
+}
+
+#[tauri::command]
+pub fn get_current_month(state: State<DbState>) -> Result<Option<Month>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_current_month_inner(&conn)
+}
+
+fn open_month_inner(conn: &rusqlite::Connection) -> Result<Month, AppError> {
+    // Determine year/month from today's date.
+    let today: String = conn.query_row(
+        "SELECT date('now')",
+        [],
+        |row| row.get(0),
+    )?;
+    let parts: Vec<&str> = today.splitn(3, '-').collect();
+    if parts.len() < 2 {
+        return Err(AppError {
+            code: "INVALID_DATE".to_string(),
+            message: format!("Unexpected date format from SQLite: {}", today),
+        });
+    }
+    let year: i64 = parts[0].parse().map_err(|_| AppError {
+        code: "INVALID_DATE".to_string(),
+        message: "Could not parse year from SQLite date".to_string(),
+    })?;
+    let month: i64 = parts[1].parse().map_err(|_| AppError {
+        code: "INVALID_DATE".to_string(),
+        message: "Could not parse month from SQLite date".to_string(),
+    })?;
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "INSERT OR IGNORE INTO months (year, month, status) VALUES (?1, ?2, 'open')",
+        rusqlite::params![year, month],
+    )?;
+    // Use year/month lookup (not last_insert_rowid) to handle OR IGNORE case
+    let m = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE year = ?1 AND month = ?2",
+        rusqlite::params![year, month],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn open_month(state: State<DbState>) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    open_month_inner(&conn)
+}
+
+fn advance_turn_the_month_step_inner(
+    conn: &rusqlite::Connection,
+    input: &AdvanceTurnTheMonthStepInput,
+) -> Result<Month, AppError> {
+    // Guard: only steps 1–3 may advance; step 4 must use close_month instead
+    if input.current_step >= 4 {
+        return Err(AppError {
+            code: "INVALID_STEP_TRANSITION".to_string(),
+            message: format!(
+                "Step {} cannot be advanced — step 4 must be completed via close_month.",
+                input.current_step
+            ),
+        });
+    }
+
+    let expected_status = format!("closing:step-{}", input.current_step);
+    let next_status = format!("closing:step-{}", input.current_step + 1);
+
+    let tx = conn.unchecked_transaction()?;
+
+    // Verify current status matches expected — prevents double-advance
+    let current: String = tx.query_row(
+        "SELECT status FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        |row| row.get(0),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    if current != expected_status {
+        return Err(AppError {
+            code: "INVALID_STEP_TRANSITION".to_string(),
+            message: format!(
+                "Expected status '{}' but found '{}'. Step may have already advanced.",
+                expected_status, current
+            ),
+        });
+    }
+
+    tx.execute(
+        "UPDATE months SET status = ?1 WHERE id = ?2",
+        rusqlite::params![next_status, input.month_id],
+    )?;
+    let m = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn advance_turn_the_month_step(
+    state: State<DbState>,
+    input: AdvanceTurnTheMonthStepInput,
+) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    advance_turn_the_month_step_inner(&conn, &input)
+}
+
+fn close_month_inner(conn: &rusqlite::Connection, input: &CloseMonthInput) -> Result<Month, AppError> {
+    // Fetch current month's year, month, and status for validation
+    let (curr_year, curr_month, curr_status): (i64, i64, String) = conn.query_row(
+        "SELECT year, month, status FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    // Enforce state machine: close_month is only valid from closing:step-4
+    if curr_status != "closing:step-4" {
+        return Err(AppError {
+            code: "INVALID_STATUS_FOR_CLOSE".to_string(),
+            message: format!(
+                "Month {} cannot be closed from status '{}'. Must be in closing:step-4 state.",
+                input.month_id, curr_status
+            ),
+        });
+    }
+
+    let (next_year, next_month) = if curr_month == 12 {
+        (curr_year + 1, 1i64)
+    } else {
+        (curr_year, curr_month + 1)
+    };
+
+    let tx = conn.unchecked_transaction()?;
+
+    // 1. Mark current month closed
+    tx.execute(
+        "UPDATE months SET status = 'closed', closed_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![input.month_id],
+    )?;
+
+    // 2. Create next month record (INSERT OR IGNORE — idempotent if already exists)
+    tx.execute(
+        "INSERT OR IGNORE INTO months (year, month, status) VALUES (?1, ?2, 'open')",
+        rusqlite::params![next_year, next_month],
+    )?;
+
+    // 3. Reset envelope allocations per type rules:
+    //    Rolling envelopes → 0 (re-allocated each month in guided fill)
+    //    Bill and Goal envelopes → preserve allocated_cents (recurring fixed costs/goals)
+    tx.execute(
+        "UPDATE envelopes SET allocated_cents = 0 WHERE type = 'Rolling'",
+        [],
+    )?;
+
+    // 4. Apply guided-fill allocations from input (committed atomically with close)
+    for item in &input.allocations {
+        tx.execute(
+            "UPDATE envelopes SET allocated_cents = ?2 WHERE id = ?1",
+            rusqlite::params![item.id, item.allocated_cents],
+        )?;
+        if tx.changes() == 0 {
+            return Err(AppError {
+                code: "ENVELOPE_NOT_FOUND".to_string(),
+                message: format!("No envelope found with id {}", item.id),
+            });
+        }
+    }
+
+    // 5. Return the new open month (query by year/month — handles OR IGNORE case)
+    let new_month = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE year = ?1 AND month = ?2",
+        rusqlite::params![next_year, next_month],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(new_month)
+}
+
+#[tauri::command]
+pub fn close_month(
+    state: State<DbState>,
+    input: CloseMonthInput,
+) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    close_month_inner(&conn, &input)
+}
+
+fn begin_turn_the_month_inner(
+    conn: &rusqlite::Connection,
+    input: &BeginTurnTheMonthInput,
+) -> Result<Month, AppError> {
+    // Fetch the month record
+    let month = conn.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        row_to_month,
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    // If already closing or closed, return as-is (idempotent)
+    if month.status != "open" {
+        return Ok(month);
+    }
+
+    // Check if calendar date has passed the end of this month.
+    // Compare (today_year * 12 + today_month) > (record_year * 12 + record_month)
+    let past_end: bool = conn.query_row(
+        "SELECT (CAST(strftime('%Y', 'now') AS INTEGER) * 12 + \
+                 CAST(strftime('%m', 'now') AS INTEGER)) > (?1 * 12 + ?2)",
+        rusqlite::params![month.year, month.month],
+        |row| row.get(0),
+    )?;
+
+    if !past_end {
+        // Still within the month — return open month unchanged
+        return Ok(month);
+    }
+
+    // Past month end — transition open → closing:step-1 atomically
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE months SET status = 'closing:step-1' WHERE id = ?1 AND status = 'open'",
+        rusqlite::params![input.month_id],
+    )?;
+    let updated = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn begin_turn_the_month(
+    state: State<DbState>,
+    input: BeginTurnTheMonthInput,
+) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    begin_turn_the_month_inner(&conn, &input)
+}
+
+fn get_closeout_summary_inner(
+    conn: &rusqlite::Connection,
+    input: &CloseoutSummaryInput,
+) -> Result<CloseoutSummary, AppError> {
+    // Fetch month record
+    let (year, month): (i64, i64) = conn.query_row(
+        "SELECT year, month FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    // Compute date range strings for the closing month
+    let curr_start = format!("{:04}-{:02}-01", year, month);
+    let (next_year, next_month) = if month == 12 { (year + 1, 1i64) } else { (year, month + 1) };
+    let next_start = format!("{:04}-{:02}-01", next_year, next_month);
+    let (prev_year, prev_month) = if month == 1 { (year - 1, 12i64) } else { (year, month - 1) };
+    let prev_start = format!("{:04}-{:02}-01", prev_year, prev_month);
+
+    // Budget: total allocated for non-savings envelopes
+    let total_allocated_cents: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(allocated_cents), 0) FROM envelopes WHERE is_savings = 0",
+        [],
+        |row| row.get(0),
+    )?;
+
+    // Budget: total spent (non-savings) in closing month.
+    // SUM(-amount_cents): expenses have negative amount_cents → positive spend.
+    let total_spent_cents: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(-t.amount_cents), 0) \
+         FROM transactions t \
+         JOIN envelopes e ON t.envelope_id = e.id \
+         WHERE e.is_savings = 0 \
+           AND t.date >= ?1 AND t.date < ?2",
+        rusqlite::params![curr_start, next_start],
+        |row| row.get(0),
+    )?;
+
+    let stayed_in_budget = total_spent_cents <= total_allocated_cents;
+    let overspend_cents = if stayed_in_budget { 0 } else { total_spent_cents - total_allocated_cents };
+
+    // Savings flow for closing month: SUM(-amount_cents) for savings envelope.
+    // Positive = deposit (money entering savings account).
+    let savings_flow_cents: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(-t.amount_cents), 0) \
+         FROM transactions t \
+         JOIN envelopes e ON t.envelope_id = e.id \
+         WHERE e.is_savings = 1 \
+           AND t.date >= ?1 AND t.date < ?2",
+        rusqlite::params![curr_start, next_start],
+        |row| row.get(0),
+    )?;
+
+    // Drift detection: first non-savings envelope over budget in BOTH the closing month
+    // and the prior month. Only considers envelopes with allocated_cents > 0.
+    let drift_envelope_name: Option<String> = conn.query_row(
+        "WITH curr AS ( \
+           SELECT t.envelope_id, COALESCE(SUM(-t.amount_cents), 0) AS spent \
+           FROM transactions t \
+           WHERE t.date >= ?1 AND t.date < ?2 \
+             AND t.amount_cents < 0 \
+           GROUP BY t.envelope_id \
+         ), \
+         prev AS ( \
+           SELECT t.envelope_id, COALESCE(SUM(-t.amount_cents), 0) AS spent \
+           FROM transactions t \
+           WHERE t.date >= ?3 AND t.date < ?1 \
+             AND t.amount_cents < 0 \
+           GROUP BY t.envelope_id \
+         ) \
+         SELECT e.name \
+         FROM envelopes e \
+         LEFT JOIN curr c ON e.id = c.envelope_id \
+         LEFT JOIN prev p ON e.id = p.envelope_id \
+         WHERE e.is_savings = 0 \
+           AND e.allocated_cents > 0 \
+           AND COALESCE(c.spent, 0) > e.allocated_cents \
+           AND COALESCE(p.spent, 0) > e.allocated_cents \
+         ORDER BY e.name ASC \
+         LIMIT 1",
+        rusqlite::params![curr_start, next_start, prev_start],
+        |row| row.get(0),
+    ).optional()?;
+
+    Ok(CloseoutSummary {
+        total_allocated_cents,
+        total_spent_cents,
+        stayed_in_budget,
+        overspend_cents,
+        savings_flow_cents,
+        drift_envelope_name,
+    })
+}
+
+#[tauri::command]
+pub fn get_closeout_summary(
+    state: State<DbState>,
+    input: CloseoutSummaryInput,
+) -> Result<CloseoutSummary, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_closeout_summary_inner(&conn, &input)
+}
+
+fn get_bill_date_suggestions_inner(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<BillDateSuggestion>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT e.id, e.name, b.due_day \
+         FROM envelopes e \
+         LEFT JOIN bill_due_dates b ON e.id = b.envelope_id \
+         WHERE e.type = 'Bill' AND e.is_savings = 0 \
+         ORDER BY e.name ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(BillDateSuggestion {
+            envelope_id: row.get(0)?,
+            envelope_name: row.get(1)?,
+            due_day: row.get(2)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_bill_date_suggestions(
+    state: State<DbState>,
+) -> Result<Vec<BillDateSuggestion>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_bill_date_suggestions_inner(&conn)
+}
+
+fn confirm_bill_dates_inner(
+    conn: &rusqlite::Connection,
+    input: &ConfirmBillDatesInput,
+) -> Result<Month, AppError> {
+    let expected_status = "closing:step-2";
+    let next_status = "closing:step-3";
+
+    let tx = conn.unchecked_transaction()?;
+
+    // Guard: verify month is at closing:step-2
+    let current: String = tx.query_row(
+        "SELECT status FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        |row| row.get(0),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    if current != expected_status {
+        return Err(AppError {
+            code: "INVALID_STEP_TRANSITION".to_string(),
+            message: format!(
+                "Expected status '{}' but found '{}'. Step may have already advanced.",
+                expected_status, current
+            ),
+        });
+    }
+
+    // Upsert or delete each bill due date entry
+    for entry in &input.dates {
+        match entry.due_day {
+            Some(day) => {
+                tx.execute(
+                    "INSERT INTO bill_due_dates (envelope_id, due_day, updated_at) \
+                     VALUES (?1, ?2, datetime('now')) \
+                     ON CONFLICT(envelope_id) DO UPDATE SET \
+                       due_day = excluded.due_day, \
+                       updated_at = excluded.updated_at",
+                    rusqlite::params![entry.envelope_id, day],
+                )?;
+            }
+            None => {
+                tx.execute(
+                    "DELETE FROM bill_due_dates WHERE envelope_id = ?1",
+                    rusqlite::params![entry.envelope_id],
+                )?;
+            }
+        }
+    }
+
+    // Advance step 2 → 3 atomically
+    tx.execute(
+        "UPDATE months SET status = ?1 WHERE id = ?2",
+        rusqlite::params![next_status, input.month_id],
+    )?;
+
+    let m = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn confirm_bill_dates(
+    state: State<DbState>,
+    input: ConfirmBillDatesInput,
+) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    confirm_bill_dates_inner(&conn, &input)
+}
+
+fn get_income_timing_suggestions_inner(
+    conn: &rusqlite::Connection,
+    month_id: i64,
+) -> Result<Vec<IncomeTimingSuggestion>, AppError> {
+    use rusqlite::OptionalExtension;
+
+    // If timing already confirmed for this month, return stored values
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM month_income_timing WHERE month_id = ?1",
+        rusqlite::params![month_id],
+        |row| row.get(0),
+    )?;
+    if count > 0 {
+        let mut stmt = conn.prepare(
+            "SELECT pay_date, amount_cents, label FROM month_income_timing \
+             WHERE month_id = ?1 ORDER BY pay_date ASC",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![month_id], |row| {
+            Ok(IncomeTimingSuggestion {
+                pay_date: row.get(0)?,
+                amount_cents: row.get(1)?,
+                label: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows { result.push(row?); }
+        return Ok(result);
+    }
+
+    // No stored timing yet — derive suggestions from settings + income_entries
+    // Get current month year/month to compute NEW month
+    let (curr_year, curr_month): (i32, i32) = conn.query_row(
+        "SELECT year, month FROM months WHERE id = ?1",
+        rusqlite::params![month_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    let (new_year, new_month) = if curr_month == 12 {
+        (curr_year + 1, 1i32)
+    } else {
+        (curr_year, curr_month + 1)
+    };
+
+    // Get settings pay_frequency and pay_dates
+    let settings_row: Option<(Option<String>, Option<String>)> = conn.query_row(
+        "SELECT pay_frequency, pay_dates FROM settings WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+
+    let (pay_frequency, pay_dates_json) = match settings_row {
+        Some((freq, dates)) => (freq, dates),
+        None => (None, None),
+    };
+
+    // Parse pay_dates JSON — expected format: ["1", "15"] (day-of-month numbers)
+    // Sorted ascending so suggestions always appear in calendar order and the
+    // remainder cent is consistently assigned to the last calendar pay date.
+    let mut pay_days: Vec<i32> = match pay_dates_json {
+        Some(ref json) => {
+            serde_json::from_str::<Vec<String>>(json)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|s| s.parse::<i32>().ok())
+                .collect()
+        }
+        None => vec![],
+    };
+    pay_days.sort_unstable();
+
+    if pay_days.is_empty() || pay_frequency.is_none() {
+        return Ok(vec![]);
+    }
+
+    // Get total income from income_entries
+    let total_income: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(amount_cents), 0) FROM income_entries",
+        [],
+        |row| row.get(0),
+    )?;
+
+    let max_day = days_in_month(new_year, new_month);
+    let n = pay_days.len() as i64;
+    let per_pay = if n > 0 { total_income / n } else { 0 };
+    let remainder = if n > 0 { total_income % n } else { 0 };
+
+    let mut suggestions = Vec::new();
+    for (i, &day) in pay_days.iter().enumerate() {
+        let clamped = day.min(max_day).max(1);
+        let pay_date = format!(
+            "{:04}-{:02}-{:02}",
+            new_year, new_month, clamped
+        );
+        let label = if pay_days.len() > 1 {
+            Some(format!("Paycheck {}", i + 1))
+        } else {
+            None
+        };
+        // Last pay date gets any remainder cents
+        let amount = if i == pay_days.len() - 1 {
+            per_pay + remainder
+        } else {
+            per_pay
+        };
+        suggestions.push(IncomeTimingSuggestion { pay_date, amount_cents: amount, label });
+    }
+    Ok(suggestions)
+}
+
+#[tauri::command]
+pub fn get_income_timing_suggestions(
+    state: State<DbState>,
+    month_id: i64,
+) -> Result<Vec<IncomeTimingSuggestion>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    get_income_timing_suggestions_inner(&conn, month_id)
+}
+
+fn confirm_income_timing_inner(
+    conn: &rusqlite::Connection,
+    input: &ConfirmIncomeTimingInput,
+) -> Result<Month, AppError> {
+    let expected_status = "closing:step-3";
+    let next_status = "closing:step-4";
+
+    let tx = conn.unchecked_transaction()?;
+
+    // Guard: verify month is at closing:step-3
+    let current: String = tx.query_row(
+        "SELECT status FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        |row| row.get(0),
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError {
+            code: "MONTH_NOT_FOUND".to_string(),
+            message: format!("No month found with id {}", input.month_id),
+        },
+        other => AppError::from(other),
+    })?;
+
+    if current != expected_status {
+        return Err(AppError {
+            code: "INVALID_STEP_TRANSITION".to_string(),
+            message: format!(
+                "Expected status '{}' but found '{}'. Step may have already advanced.",
+                expected_status, current
+            ),
+        });
+    }
+
+    // Replace all existing timing records for this month
+    tx.execute(
+        "DELETE FROM month_income_timing WHERE month_id = ?1",
+        rusqlite::params![input.month_id],
+    )?;
+
+    for entry in &input.entries {
+        tx.execute(
+            "INSERT INTO month_income_timing (month_id, pay_date, amount_cents, label, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+            rusqlite::params![
+                input.month_id,
+                entry.pay_date,
+                entry.amount_cents,
+                entry.label,
+            ],
+        )?;
+    }
+
+    // Advance step 3 → 4 atomically
+    tx.execute(
+        "UPDATE months SET status = ?1 WHERE id = ?2",
+        rusqlite::params![next_status, input.month_id],
+    )?;
+
+    let m = tx.query_row(
+        "SELECT id, year, month, status, opened_at, closed_at FROM months WHERE id = ?1",
+        rusqlite::params![input.month_id],
+        row_to_month,
+    )?;
+    tx.commit()?;
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn confirm_income_timing(
+    state: State<DbState>,
+    input: ConfirmIncomeTimingInput,
+) -> Result<Month, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError {
+        code: "DB_LOCK_POISON".to_string(),
+        message: "Database mutex was poisoned.".to_string(),
+    })?;
+    confirm_income_timing_inner(&conn, &input)
+}
+
+#[cfg(test)]
+mod month_tests {
+    use crate::migrations;
+    use rusqlite::Connection;
+    use super::{
+        Month, AdvanceTurnTheMonthStepInput, CloseMonthInput, BeginTurnTheMonthInput,
+        AllocationItem,
+        open_month_inner, get_current_month_inner,
+        advance_turn_the_month_step_inner, close_month_inner, begin_turn_the_month_inner,
+    };
+    use super::{CreateEnvelopeInput, create_envelope_inner};
+    use super::{CloseoutSummaryInput, get_closeout_summary_inner};
+    use super::{BillDateEntry, ConfirmBillDatesInput, confirm_bill_dates_inner};
+    use super::{get_bill_date_suggestions_inner};
+    use super::{IncomeTimingEntry, ConfirmIncomeTimingInput, confirm_income_timing_inner};
+    use super::{get_income_timing_suggestions_inner};
+
+    fn fresh_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn).unwrap();
+        conn
+    }
+
+    fn insert_month(conn: &Connection, year: i64, month: i64, status: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO months (year, month, status) VALUES (?1, ?2, ?3)",
+            rusqlite::params![year, month, status],
+        ).unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn test_open_month_creates_record() {
+        let conn = fresh_conn();
+        let m = open_month_inner(&conn).unwrap();
+        assert!(m.id > 0);
+        assert_eq!(m.status, "open");
+        assert!(m.year > 0);
+        assert!(m.month >= 1 && m.month <= 12);
+    }
+
+    #[test]
+    fn test_open_month_idempotent_via_insert_or_ignore() {
+        let conn = fresh_conn();
+        let m1 = open_month_inner(&conn).unwrap();
+        let m2 = open_month_inner(&conn).unwrap();
+        // Both calls return the same record
+        assert_eq!(m1.id, m2.id);
+        // Only one row exists
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM months", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_get_current_month_returns_none_on_empty_db() {
+        let conn = fresh_conn();
+        let result = get_current_month_inner(&conn).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_current_month_returns_open_month() {
+        let conn = fresh_conn();
+        insert_month(&conn, 2026, 4, "open");
+        let m = get_current_month_inner(&conn).unwrap().unwrap();
+        assert_eq!(m.status, "open");
+        assert_eq!(m.year, 2026);
+        assert_eq!(m.month, 4);
+    }
+
+    #[test]
+    fn test_get_current_month_returns_closing_month() {
+        let conn = fresh_conn();
+        insert_month(&conn, 2026, 4, "closing:step-2");
+        let m = get_current_month_inner(&conn).unwrap().unwrap();
+        assert_eq!(m.status, "closing:step-2");
+    }
+
+    #[test]
+    fn test_get_current_month_skips_closed_months() {
+        let conn = fresh_conn();
+        insert_month(&conn, 2026, 3, "closed");
+        let result = get_current_month_inner(&conn).unwrap();
+        assert!(result.is_none(), "closed months should not be returned");
+    }
+
+    #[test]
+    fn test_advance_step_updates_status() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "closing:step-1");
+        let input = AdvanceTurnTheMonthStepInput { month_id: id, current_step: 1 };
+        let m = advance_turn_the_month_step_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-2");
+    }
+
+    #[test]
+    fn test_advance_step_wrong_status_errors() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "closing:step-1");
+        // Try to advance from step 2, but we're at step 1 → should fail
+        let input = AdvanceTurnTheMonthStepInput { month_id: id, current_step: 2 };
+        let err = advance_turn_the_month_step_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "INVALID_STEP_TRANSITION");
+    }
+
+    #[test]
+    fn test_advance_step_month_not_found_errors() {
+        let conn = fresh_conn();
+        let input = AdvanceTurnTheMonthStepInput { month_id: 999, current_step: 1 };
+        let err = advance_turn_the_month_step_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "MONTH_NOT_FOUND");
+    }
+
+    #[test]
+    fn test_close_month_creates_next_month() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "closing:step-4");
+        let input = CloseMonthInput { month_id: id, allocations: vec![] };
+        let new_month = close_month_inner(&conn, &input).unwrap();
+        assert_eq!(new_month.status, "open");
+        assert_eq!(new_month.year, 2026);
+        assert_eq!(new_month.month, 5);
+
+        // Original month should be closed
+        let status: String = conn
+            .query_row("SELECT status FROM months WHERE id = ?1", rusqlite::params![id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "closed");
+    }
+
+    #[test]
+    fn test_close_month_open_status_errors() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "open");
+        let input = CloseMonthInput { month_id: id, allocations: vec![] };
+        let err = close_month_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "INVALID_STATUS_FOR_CLOSE");
+    }
+
+    #[test]
+    fn test_close_month_resets_rolling_envelopes() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "closing:step-4");
+        // Create a Rolling envelope with allocated_cents > 0
+        create_envelope_inner(&conn, &CreateEnvelopeInput {
+            name: "Groceries".to_string(),
+            envelope_type: "Rolling".to_string(),
+            priority: "Need".to_string(),
+            allocated_cents: 50000,
+            month_id: None,
+            is_savings: None,
+        }).unwrap();
+        let input = CloseMonthInput { month_id: id, allocations: vec![] };
+        close_month_inner(&conn, &input).unwrap();
+        // Rolling envelope allocated_cents should be 0
+        let cents: i64 = conn
+            .query_row("SELECT allocated_cents FROM envelopes WHERE type = 'Rolling'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(cents, 0);
+    }
+
+    #[test]
+    fn test_close_month_preserves_bill_envelope() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 4, "closing:step-4");
+        create_envelope_inner(&conn, &CreateEnvelopeInput {
+            name: "Rent".to_string(),
+            envelope_type: "Bill".to_string(),
+            priority: "Need".to_string(),
+            allocated_cents: 120000,
+            month_id: None,
+            is_savings: None,
+        }).unwrap();
+        let input = CloseMonthInput { month_id: id, allocations: vec![] };
+        close_month_inner(&conn, &input).unwrap();
+        // Bill envelope allocated_cents should be preserved
+        let cents: i64 = conn
+            .query_row("SELECT allocated_cents FROM envelopes WHERE type = 'Bill'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(cents, 120000);
+    }
+
+    #[test]
+    fn test_close_month_wraps_december() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 12, "closing:step-4");
+        let input = CloseMonthInput { month_id: id, allocations: vec![] };
+        let new_month = close_month_inner(&conn, &input).unwrap();
+        assert_eq!(new_month.year, 2027);
+        assert_eq!(new_month.month, 1);
+    }
+
+    #[test]
+    fn test_close_month_not_found_errors() {
+        let conn = fresh_conn();
+        let input = CloseMonthInput { month_id: 999, allocations: vec![] };
+        let err = close_month_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "MONTH_NOT_FOUND");
+    }
+
+    #[test]
+    fn test_close_month_commits_allocations_atomically() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-4");
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Groceries', 'Rolling', 'Need', 0, 0)",
+            [],
+        ).unwrap();
+        let env_id = conn.last_insert_rowid();
+        let input = CloseMonthInput {
+            month_id,
+            allocations: vec![AllocationItem { id: env_id, allocated_cents: 150_000 }],
+        };
+        let new_month = close_month_inner(&conn, &input).unwrap();
+        assert_eq!(new_month.status, "open");
+        assert_eq!(new_month.month, 5);
+        let cents: i64 = conn.query_row(
+            "SELECT allocated_cents FROM envelopes WHERE id = ?1",
+            rusqlite::params![env_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(cents, 150_000);
+    }
+
+    #[test]
+    fn test_begin_ttm_noop_when_not_past_end() {
+        let conn = fresh_conn();
+        // Insert a month for the current calendar month — not past end
+        let today: String = conn
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .unwrap();
+        let parts: Vec<&str> = today.splitn(3, '-').collect();
+        let year: i64 = parts[0].parse().unwrap();
+        let month: i64 = parts[1].parse().unwrap();
+        let id = insert_month(&conn, year, month, "open");
+        let input = BeginTurnTheMonthInput { month_id: id };
+        let m = begin_turn_the_month_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "open");
+    }
+
+    #[test]
+    fn test_begin_ttm_transitions_to_closing_step_1() {
+        let conn = fresh_conn();
+        // Insert a month safely in the past
+        let id = insert_month(&conn, 2000, 1, "open");
+        let input = BeginTurnTheMonthInput { month_id: id };
+        let m = begin_turn_the_month_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-1");
+    }
+
+    #[test]
+    fn test_begin_ttm_idempotent_when_already_closing() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2000, 1, "closing:step-2");
+        let input = BeginTurnTheMonthInput { month_id: id };
+        let m = begin_turn_the_month_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-2");
+    }
+
+    #[test]
+    fn test_begin_ttm_noop_when_closed() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2000, 1, "closed");
+        let input = BeginTurnTheMonthInput { month_id: id };
+        let m = begin_turn_the_month_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closed");
+    }
+
+    #[test]
+    fn test_closeout_summary_empty_db() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.total_allocated_cents, 0);
+        assert_eq!(s.total_spent_cents, 0);
+        assert_eq!(s.stayed_in_budget, true);
+        assert_eq!(s.overspend_cents, 0);
+        assert_eq!(s.savings_flow_cents, 0);
+        assert_eq!(s.drift_envelope_name, None);
+    }
+
+    #[test]
+    fn test_closeout_summary_stayed_in_budget() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Groceries".to_string(),
+                envelope_type: "Rolling".to_string(),
+                priority: "Need".to_string(),
+                allocated_cents: 50000,
+                month_id: None,
+                is_savings: Some(false),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Test Payee", -30000i64, "2026-03-15", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.total_spent_cents, 30000);
+        assert_eq!(s.stayed_in_budget, true);
+        assert_eq!(s.overspend_cents, 0);
+    }
+
+    #[test]
+    fn test_closeout_summary_overspent() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Groceries".to_string(),
+                envelope_type: "Rolling".to_string(),
+                priority: "Need".to_string(),
+                allocated_cents: 50000,
+                month_id: None,
+                is_savings: Some(false),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Test Payee", -60000i64, "2026-03-15", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.stayed_in_budget, false);
+        assert_eq!(s.overspend_cents, 10000);
+    }
+
+    #[test]
+    fn test_closeout_summary_savings_flow_deposit() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Savings".to_string(),
+                envelope_type: "Goal".to_string(),
+                priority: "Need".to_string(),
+                allocated_cents: 0,
+                month_id: None,
+                is_savings: Some(true),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Savings Transfer", -25000i64, "2026-03-10", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.savings_flow_cents, 25000);
+    }
+
+    #[test]
+    fn test_closeout_summary_savings_flow_withdrawal() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Savings".to_string(),
+                envelope_type: "Goal".to_string(),
+                priority: "Need".to_string(),
+                allocated_cents: 0,
+                month_id: None,
+                is_savings: Some(true),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Savings Withdrawal", 15000i64, "2026-03-10", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.savings_flow_cents, -15000);
+    }
+
+    #[test]
+    fn test_closeout_summary_drift_detection() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Dining Out".to_string(),
+                envelope_type: "Rolling".to_string(),
+                priority: "Want".to_string(),
+                allocated_cents: 10000,
+                month_id: None,
+                is_savings: Some(false),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        // Previous month overspend (Feb 2026)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Restaurant", -12000i64, "2026-02-15", env_id],
+        ).unwrap();
+        // Current month overspend (Mar 2026)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Restaurant", -11000i64, "2026-03-15", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.drift_envelope_name, Some("Dining Out".to_string()));
+    }
+
+    #[test]
+    fn test_closeout_summary_no_drift_one_month() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Dining Out".to_string(),
+                envelope_type: "Rolling".to_string(),
+                priority: "Want".to_string(),
+                allocated_cents: 10000,
+                month_id: None,
+                is_savings: Some(false),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        // Only current month overspend (no prior month data)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Restaurant", -11000i64, "2026-03-15", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.drift_envelope_name, None);
+    }
+
+    #[test]
+    fn test_closeout_summary_excludes_other_months() {
+        let conn = fresh_conn();
+        let id = insert_month(&conn, 2026, 3, "closing:step-1");
+        let env_id = {
+            let input = CreateEnvelopeInput {
+                name: "Groceries".to_string(),
+                envelope_type: "Rolling".to_string(),
+                priority: "Need".to_string(),
+                allocated_cents: 50000,
+                month_id: None,
+                is_savings: Some(false),
+            };
+            create_envelope_inner(&conn, &input).unwrap().id
+        };
+        // Transaction in April (outside Mar closing month)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Test Payee", -40000i64, "2026-04-01", env_id],
+        ).unwrap();
+        // Transaction in March (inside closing month)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Test Payee", -20000i64, "2026-03-15", env_id],
+        ).unwrap();
+        let input = CloseoutSummaryInput { month_id: id };
+        let s = get_closeout_summary_inner(&conn, &input).unwrap();
+        assert_eq!(s.total_spent_cents, 20000);
+    }
+
+    // ── Bill date tests ──
+
+    fn insert_bill_envelope(conn: &Connection, name: &str) -> i64 {
+        let input = CreateEnvelopeInput {
+            name: name.to_string(),
+            envelope_type: "Bill".to_string(),
+            priority: "Need".to_string(),
+            allocated_cents: 10000,
+            month_id: None,
+            is_savings: Some(false),
+        };
+        create_envelope_inner(conn, &input).unwrap().id
+    }
+
+    #[test]
+    fn test_get_bill_date_suggestions_empty() {
+        let conn = fresh_conn();
+        let result = get_bill_date_suggestions_inner(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_bill_date_suggestions_filters_bill_only() {
+        let conn = fresh_conn();
+        // Insert Rolling, Bill, Goal envelopes
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Groceries', 'Rolling', 'Need', 50000, 0)",
+            [],
+        ).unwrap();
+        insert_bill_envelope(&conn, "Rent");
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Vacation', 'Goal', 'Want', 20000, 0)",
+            [],
+        ).unwrap();
+        let result = get_bill_date_suggestions_inner(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].envelope_name, "Rent");
+    }
+
+    #[test]
+    fn test_get_bill_date_suggestions_returns_due_day() {
+        let conn = fresh_conn();
+        let env_id = insert_bill_envelope(&conn, "Internet");
+        conn.execute(
+            "INSERT INTO bill_due_dates (envelope_id, due_day) VALUES (?1, ?2)",
+            rusqlite::params![env_id, 15i32],
+        ).unwrap();
+        let result = get_bill_date_suggestions_inner(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].due_day, Some(15));
+    }
+
+    #[test]
+    fn test_get_bill_date_suggestions_null_when_no_record() {
+        let conn = fresh_conn();
+        insert_bill_envelope(&conn, "Phone");
+        let result = get_bill_date_suggestions_inner(&conn).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].due_day, None);
+    }
+
+    #[test]
+    fn test_confirm_bill_dates_saves_and_advances() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-2");
+        let env_id = insert_bill_envelope(&conn, "Rent");
+        let input = ConfirmBillDatesInput {
+            month_id,
+            dates: vec![BillDateEntry { envelope_id: env_id, due_day: Some(15) }],
+        };
+        let m = confirm_bill_dates_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-3");
+        let due_day: i32 = conn.query_row(
+            "SELECT due_day FROM bill_due_dates WHERE envelope_id = ?1",
+            rusqlite::params![env_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(due_day, 15);
+    }
+
+    #[test]
+    fn test_confirm_bill_dates_upserts_existing() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-2");
+        let env_id = insert_bill_envelope(&conn, "Rent");
+        conn.execute(
+            "INSERT INTO bill_due_dates (envelope_id, due_day) VALUES (?1, ?2)",
+            rusqlite::params![env_id, 10i32],
+        ).unwrap();
+        let input = ConfirmBillDatesInput {
+            month_id,
+            dates: vec![BillDateEntry { envelope_id: env_id, due_day: Some(20) }],
+        };
+        confirm_bill_dates_inner(&conn, &input).unwrap();
+        let due_day: i32 = conn.query_row(
+            "SELECT due_day FROM bill_due_dates WHERE envelope_id = ?1",
+            rusqlite::params![env_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(due_day, 20);
+    }
+
+    #[test]
+    fn test_confirm_bill_dates_null_deletes_record() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-2");
+        let env_id = insert_bill_envelope(&conn, "Rent");
+        conn.execute(
+            "INSERT INTO bill_due_dates (envelope_id, due_day) VALUES (?1, ?2)",
+            rusqlite::params![env_id, 15i32],
+        ).unwrap();
+        let input = ConfirmBillDatesInput {
+            month_id,
+            dates: vec![BillDateEntry { envelope_id: env_id, due_day: None }],
+        };
+        let m = confirm_bill_dates_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-3");
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM bill_due_dates WHERE envelope_id = ?1",
+            rusqlite::params![env_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_confirm_bill_dates_empty_list_advances_step() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-2");
+        let input = ConfirmBillDatesInput {
+            month_id,
+            dates: vec![],
+        };
+        let m = confirm_bill_dates_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-3");
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM bill_due_dates",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_confirm_bill_dates_wrong_step_errors() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-1");
+        let input = ConfirmBillDatesInput {
+            month_id,
+            dates: vec![],
+        };
+        let err = confirm_bill_dates_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "INVALID_STEP_TRANSITION");
+        let status: String = conn.query_row(
+            "SELECT status FROM months WHERE id = ?1",
+            rusqlite::params![month_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(status, "closing:step-1");
+    }
+
+    // ── Income timing tests ──
+
+    fn insert_settings_twice_monthly(conn: &Connection) {
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (id, pay_frequency, pay_dates) VALUES (1, ?1, ?2)",
+            rusqlite::params!["twice-monthly", r#"["1","15"]"#],
+        ).unwrap();
+    }
+
+    fn insert_income_entry(conn: &Connection, amount_cents: i64) {
+        conn.execute(
+            "INSERT INTO income_entries (name, amount_cents) VALUES (?1, ?2)",
+            rusqlite::params!["Salary", amount_cents],
+        ).unwrap();
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_no_settings() {
+        let conn = fresh_conn();
+        insert_month(&conn, 2026, 4, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=4", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_no_pay_dates() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (id, pay_frequency) VALUES (1, ?1)",
+            rusqlite::params!["monthly"],
+        ).unwrap();
+        insert_month(&conn, 2026, 4, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=4", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_twice_monthly() {
+        let conn = fresh_conn();
+        insert_settings_twice_monthly(&conn);
+        insert_income_entry(&conn, 600000);
+        insert_month(&conn, 2026, 4, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=4", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].pay_date, "2026-05-01");
+        assert_eq!(result[0].amount_cents, 300000);
+        assert_eq!(result[1].pay_date, "2026-05-15");
+        assert_eq!(result[1].amount_cents, 300000);
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_monthly() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (id, pay_frequency, pay_dates) VALUES (1, ?1, ?2)",
+            rusqlite::params!["monthly", r#"["1"]"#],
+        ).unwrap();
+        insert_income_entry(&conn, 500000);
+        insert_month(&conn, 2026, 4, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=4", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].pay_date, "2026-05-01");
+        assert_eq!(result[0].amount_cents, 500000);
+        assert!(result[0].label.is_none());
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_december_wraps() {
+        let conn = fresh_conn();
+        insert_settings_twice_monthly(&conn);
+        insert_income_entry(&conn, 600000);
+        insert_month(&conn, 2026, 12, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=12", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].pay_date, "2027-01-01");
+        assert_eq!(result[1].pay_date, "2027-01-15");
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_day_clamped_to_month_end() {
+        let conn = fresh_conn();
+        // Month with day 31, new month = March (31 days) — no clamping needed
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (id, pay_frequency, pay_dates) VALUES (1, ?1, ?2)",
+            rusqlite::params!["monthly", r#"["31"]"#],
+        ).unwrap();
+        insert_income_entry(&conn, 100000);
+        insert_month(&conn, 2026, 2, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=2", [], |r| r.get(0)).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        assert_eq!(result[0].pay_date, "2026-03-31");
+
+        // New month = February (28 days in 2026) — day 31 clamped to 28
+        insert_month(&conn, 2026, 1, "closing:step-3");
+        let month_id2: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=1", [], |r| r.get(0)).unwrap();
+        let result2 = get_income_timing_suggestions_inner(&conn, month_id2).unwrap();
+        assert_eq!(result2[0].pay_date, "2026-02-28");
+    }
+
+    #[test]
+    fn test_get_income_timing_suggestions_returns_stored_when_exists() {
+        let conn = fresh_conn();
+        insert_settings_twice_monthly(&conn);
+        insert_income_entry(&conn, 600000);
+        insert_month(&conn, 2026, 4, "closing:step-3");
+        let month_id: i64 = conn.query_row("SELECT id FROM months WHERE year=2026 AND month=4", [], |r| r.get(0)).unwrap();
+        // Insert a stored record manually
+        conn.execute(
+            "INSERT INTO month_income_timing (month_id, pay_date, amount_cents, label) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![month_id, "2026-05-01", 999999i64, Option::<String>::None],
+        ).unwrap();
+        let result = get_income_timing_suggestions_inner(&conn, month_id).unwrap();
+        // Should return stored record, not re-derived from settings
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].pay_date, "2026-05-01");
+        assert_eq!(result[0].amount_cents, 999999);
+    }
+
+    #[test]
+    fn test_confirm_income_timing_saves_and_advances() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-3");
+        let input = ConfirmIncomeTimingInput {
+            month_id,
+            entries: vec![
+                IncomeTimingEntry { pay_date: "2026-05-01".to_string(), amount_cents: 300000, label: Some("Paycheck 1".to_string()) },
+                IncomeTimingEntry { pay_date: "2026-05-15".to_string(), amount_cents: 300000, label: Some("Paycheck 2".to_string()) },
+            ],
+        };
+        let m = confirm_income_timing_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-4");
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM month_income_timing WHERE month_id = ?1",
+            rusqlite::params![month_id],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 2);
+        let amount: i64 = conn.query_row(
+            "SELECT amount_cents FROM month_income_timing WHERE month_id = ?1 AND pay_date = '2026-05-01'",
+            rusqlite::params![month_id],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(amount, 300000);
+    }
+
+    #[test]
+    fn test_confirm_income_timing_empty_entries_advances() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-3");
+        let input = ConfirmIncomeTimingInput { month_id, entries: vec![] };
+        let m = confirm_income_timing_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-4");
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM month_income_timing WHERE month_id = ?1",
+            rusqlite::params![month_id],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_confirm_income_timing_replaces_existing_records() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-3");
+        // Insert existing row
+        conn.execute(
+            "INSERT INTO month_income_timing (month_id, pay_date, amount_cents) VALUES (?1, ?2, ?3)",
+            rusqlite::params![month_id, "2026-05-01", 100000i64],
+        ).unwrap();
+        let input = ConfirmIncomeTimingInput {
+            month_id,
+            entries: vec![
+                IncomeTimingEntry { pay_date: "2026-05-15".to_string(), amount_cents: 200000, label: None },
+            ],
+        };
+        let m = confirm_income_timing_inner(&conn, &input).unwrap();
+        assert_eq!(m.status, "closing:step-4");
+        // Old row should be gone
+        let old: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM month_income_timing WHERE pay_date = '2026-05-01'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(old, 0);
+        // New row present
+        let new_amt: i64 = conn.query_row(
+            "SELECT amount_cents FROM month_income_timing WHERE pay_date = '2026-05-15'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(new_amt, 200000);
+    }
+
+    #[test]
+    fn test_confirm_income_timing_wrong_step_errors() {
+        let conn = fresh_conn();
+        let month_id = insert_month(&conn, 2026, 4, "closing:step-2");
+        let input = ConfirmIncomeTimingInput { month_id, entries: vec![] };
+        let err = confirm_income_timing_inner(&conn, &input).unwrap_err();
+        assert_eq!(err.code, "INVALID_STEP_TRANSITION");
+        let status: String = conn.query_row(
+            "SELECT status FROM months WHERE id = ?1",
+            rusqlite::params![month_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(status, "closing:step-2");
+    }
+}
+
+#[cfg(test)]
+mod savings_tests {
+    use crate::migrations;
+    use rusqlite::Connection;
+    use super::{get_savings_reconciliations_inner, record_reconciliation_inner, get_savings_transactions_since_inner, get_savings_flow_by_month_inner};
+
+    fn fresh_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn test_get_savings_reconciliations_empty_on_fresh_db() {
+        let conn = fresh_conn();
+        let rows = get_savings_reconciliations_inner(&conn).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_record_reconciliation_inserts_and_returns() {
+        let conn = fresh_conn();
+        let rec = record_reconciliation_inner(&conn, 500_000, Some("first entry".to_string())).unwrap();
+        assert_eq!(rec.entered_balance_cents, 500_000);
+        assert_eq!(rec.previous_tracked_balance_cents, 0);
+        assert_eq!(rec.delta_cents, 500_000);
+        assert_eq!(rec.note.as_deref(), Some("first entry"));
+        assert!(rec.id > 0);
+    }
+
+    #[test]
+    fn test_record_reconciliation_zero_balance_allowed() {
+        let conn = fresh_conn();
+        let rec = record_reconciliation_inner(&conn, 0, None).unwrap();
+        assert_eq!(rec.entered_balance_cents, 0);
+        assert_eq!(rec.delta_cents, 0);
+    }
+
+    #[test]
+    fn test_record_reconciliation_negative_balance_rejected() {
+        let conn = fresh_conn();
+        let err = record_reconciliation_inner(&conn, -1, None).unwrap_err();
+        assert_eq!(err.code, "INVALID_ENTERED_BALANCE");
+    }
+
+    #[test]
+    fn test_record_reconciliation_delta_computed_correctly() {
+        let conn = fresh_conn();
+        // First reconciliation: balance goes from 0 to 300_000
+        record_reconciliation_inner(&conn, 300_000, None).unwrap();
+        // Second reconciliation: balance is now 450_000; delta = 150_000
+        let rec2 = record_reconciliation_inner(&conn, 450_000, None).unwrap();
+        assert_eq!(rec2.previous_tracked_balance_cents, 300_000);
+        assert_eq!(rec2.delta_cents, 150_000);
+    }
+
+    #[test]
+    fn test_record_reconciliation_negative_delta_allowed() {
+        let conn = fresh_conn();
+        // Balance drops from 500_000 to 200_000 (withdrew from savings)
+        record_reconciliation_inner(&conn, 500_000, None).unwrap();
+        let rec2 = record_reconciliation_inner(&conn, 200_000, None).unwrap();
+        assert_eq!(rec2.delta_cents, -300_000);
+    }
+
+    #[test]
+    fn test_record_reconciliation_previous_tracked_includes_tx_deltas() {
+        let conn = fresh_conn();
+        // Create savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('ING', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let savings_env_id = conn.last_insert_rowid();
+        // First reconciliation at 500_000
+        let _rec1 = record_reconciliation_inner(&conn, 500_000, None).unwrap();
+        // Insert savings deposit (amount_cents = -30_000) after the first reconciliation
+        // (date > rec1.date means same-day txs are NOT included, which is correct)
+        // Use a date after rec1 to ensure inclusion: rec1.date is today, use tomorrow-ish
+        // Actually: the query uses `t.date > prev_date`. rec1.date is 'today'.
+        // Insert on a date after rec1.date to ensure it's counted.
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Deposit', -30000, '2099-01-01', ?1, 0)",
+            rusqlite::params![savings_env_id],
+        ).unwrap();
+        // Second reconciliation at 600_000
+        // previous_tracked = 500_000 + (-(-30_000)) = 530_000
+        // delta = 600_000 - 530_000 = 70_000
+        let rec2 = record_reconciliation_inner(&conn, 600_000, None).unwrap();
+        assert_eq!(rec2.previous_tracked_balance_cents, 530_000);
+        assert_eq!(rec2.delta_cents, 70_000);
+    }
+
+    #[test]
+    fn test_get_savings_reconciliations_ordered_by_date_asc() {
+        let conn = fresh_conn();
+        // Insert rows with explicit different dates to actually exercise ORDER BY date ASC
+        conn.execute(
+            "INSERT INTO savings_reconciliations (date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note) VALUES ('2026-01-01', 200_000, 0, 200_000, NULL)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO savings_reconciliations (date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note) VALUES ('2026-03-01', 500_000, 200_000, 300_000, NULL)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO savings_reconciliations (date, entered_balance_cents, previous_tracked_balance_cents, delta_cents, note) VALUES ('2026-02-01', 350_000, 200_000, 150_000, NULL)",
+            [],
+        ).unwrap();
+        let rows = get_savings_reconciliations_inner(&conn).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].date, "2026-01-01");
+        assert_eq!(rows[1].date, "2026-02-01");
+        assert_eq!(rows[2].date, "2026-03-01");
+    }
+
+    #[test]
+    fn test_get_savings_transactions_since_empty() {
+        let conn = fresh_conn();
+        // No savings envelope at all — query should return empty vec
+        let rows = get_savings_transactions_since_inner(&conn, "2026-01-01").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn test_get_savings_transactions_since_filters_by_savings_envelope() {
+        let conn = fresh_conn();
+        // Create savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('ING', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let savings_env_id = conn.last_insert_rowid();
+        // Create non-savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Groceries', 'Rolling', 'Need', 0, 0)",
+            [],
+        ).unwrap();
+        let regular_env_id = conn.last_insert_rowid();
+        // Add transaction to savings envelope
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Deposit', -50000, '2026-04-01', ?1, 0)",
+            rusqlite::params![savings_env_id],
+        ).unwrap();
+        // Add transaction to non-savings envelope
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Kroger', 3000, '2026-04-01', ?1, 0)",
+            rusqlite::params![regular_env_id],
+        ).unwrap();
+        let rows = get_savings_transactions_since_inner(&conn, "2026-01-01").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].payee, "Deposit");
+        assert_eq!(rows[0].amount_cents, -50000);
+    }
+
+    #[test]
+    fn test_get_savings_transactions_since_filters_by_date() {
+        let conn = fresh_conn();
+        // Create savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('ING', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let savings_env_id = conn.last_insert_rowid();
+        // Add two transactions on different dates
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Early Deposit', -20000, '2026-03-01', ?1, 0)",
+            rusqlite::params![savings_env_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Late Deposit', -30000, '2026-04-15', ?1, 0)",
+            rusqlite::params![savings_env_id],
+        ).unwrap();
+        // Query with since_date between the two → only the later one returned
+        let rows = get_savings_transactions_since_inner(&conn, "2026-04-01").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].payee, "Late Deposit");
+    }
+
+    #[test]
+    fn test_get_savings_flow_by_month_empty_returns_empty() {
+        let conn = fresh_conn();
+        let result = get_savings_flow_by_month_inner(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_savings_flow_by_month_aggregates_by_month() {
+        let conn = fresh_conn();
+        // Create a savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Savings', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let envelope_id: i64 = conn.query_row("SELECT last_insert_rowid()", [], |r| r.get(0)).unwrap();
+        // Two deposits in the same month
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Deposit1', -20000, date('now', 'start of month'), ?1, 0)",
+            rusqlite::params![envelope_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Deposit2', -30000, date('now', 'start of month'), ?1, 0)",
+            rusqlite::params![envelope_id],
+        ).unwrap();
+        // One in a different month (2 months ago)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('OldDeposit', -10000, date('now', 'start of month', '-2 months'), ?1, 0)",
+            rusqlite::params![envelope_id],
+        ).unwrap();
+        let result = get_savings_flow_by_month_inner(&conn).unwrap();
+        assert_eq!(result.len(), 2);
+        // Current month: -(-20000) + -(-30000) = 50000
+        let current_month: String = conn.query_row("SELECT strftime('%Y-%m', 'now')", [], |r| r.get(0)).unwrap();
+        let current = result.iter().find(|r| r.month == current_month).unwrap();
+        assert_eq!(current.net_flow_cents, 50000);
+        // Older month: -(-10000) = 10000
+        let older = result.iter().find(|r| r.month != current_month).unwrap();
+        assert_eq!(older.net_flow_cents, 10000);
+    }
+
+    #[test]
+    fn test_get_savings_flow_by_month_sign_convention() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Savings', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let envelope_id: i64 = conn.query_row("SELECT last_insert_rowid()", [], |r| r.get(0)).unwrap();
+        // Deposit: negative amount_cents → positive net_flow_cents
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Deposit', -50000, date('now', 'start of month'), ?1, 0)",
+            rusqlite::params![envelope_id],
+        ).unwrap();
+        // Withdrawal: positive amount_cents → negative net_flow_cents (different month)
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Withdrawal', 20000, date('now', 'start of month', '-1 month'), ?1, 0)",
+            rusqlite::params![envelope_id],
+        ).unwrap();
+        let result = get_savings_flow_by_month_inner(&conn).unwrap();
+        assert_eq!(result.len(), 2);
+        let deposit_month = result.iter().find(|r| r.net_flow_cents > 0).unwrap();
+        assert_eq!(deposit_month.net_flow_cents, 50000);
+        let withdrawal_month = result.iter().find(|r| r.net_flow_cents < 0).unwrap();
+        assert_eq!(withdrawal_month.net_flow_cents, -20000);
+    }
+
+    #[test]
+    fn test_get_savings_flow_by_month_excludes_non_savings_envelopes() {
+        let conn = fresh_conn();
+        // Non-savings envelope
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) VALUES ('Groceries', 'Rolling', 'Need', 0, 0)",
+            [],
+        ).unwrap();
+        let non_savings_id: i64 = conn.query_row("SELECT last_insert_rowid()", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) VALUES ('Groceries', 5000, date('now', 'start of month'), ?1, 0)",
+            rusqlite::params![non_savings_id],
+        ).unwrap();
+        let result = get_savings_flow_by_month_inner(&conn).unwrap();
+        assert!(result.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod essential_spend_tests {
+    use crate::migrations;
+    use rusqlite::Connection;
+    use super::get_avg_monthly_essential_spend_cents_inner;
+
+    fn fresh_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn).unwrap();
+        conn
+    }
+
+    fn make_need_envelope(conn: &Connection, name: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) \
+             VALUES (?1, 'Rolling', 'Need', 0, 0)",
+            rusqlite::params![name],
+        ).unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn make_tx(conn: &Connection, env_id: i64, amount_cents: i64, date: &str) {
+        conn.execute(
+            "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared) \
+             VALUES ('Test', ?1, ?2, ?3, 0)",
+            rusqlite::params![amount_cents, date, env_id],
+        ).unwrap();
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_returns_zero_when_no_transactions() {
+        let conn = fresh_conn();
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_returns_zero_when_no_need_envelopes() {
+        let conn = fresh_conn();
+        // Create Should-priority envelope with transactions
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) \
+             VALUES ('Should Env', 'Rolling', 'Should', 0, 0)",
+            [],
+        ).unwrap();
+        let env_id = conn.last_insert_rowid();
+        make_tx(&conn, env_id, -50_000, "2026-01-15");
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_returns_zero_when_savings_envelope() {
+        let conn = fresh_conn();
+        // Create Need-priority savings envelope (is_savings=1)
+        conn.execute(
+            "INSERT INTO envelopes (name, type, priority, allocated_cents, is_savings) \
+             VALUES ('Savings', 'Rolling', 'Need', 0, 1)",
+            [],
+        ).unwrap();
+        let env_id = conn.last_insert_rowid();
+        make_tx(&conn, env_id, -100_000, "2026-01-15");
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_single_month() {
+        let conn = fresh_conn();
+        let env_id = make_need_envelope(&conn, "Rent");
+        make_tx(&conn, env_id, -100_000, "2026-01-01");
+        make_tx(&conn, env_id, -50_000, "2026-01-15");
+        // Total for Jan: -(-100_000 + -50_000) = 150_000
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 150_000);
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_two_months_averaged() {
+        let conn = fresh_conn();
+        let env_id = make_need_envelope(&conn, "Groceries");
+        // Month A: total spend 120_000
+        make_tx(&conn, env_id, -120_000, "2026-01-15");
+        // Month B: total spend 180_000
+        make_tx(&conn, env_id, -180_000, "2026-02-15");
+        // AVG(120_000, 180_000) = 150_000
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 150_000);
+    }
+
+    #[test]
+    fn test_get_avg_essential_spend_excludes_net_refund_months() {
+        let conn = fresh_conn();
+        let env_id = make_need_envelope(&conn, "Groceries");
+        // Month A: qualifying — net spend 100_000
+        make_tx(&conn, env_id, -100_000, "2026-01-15");
+        // Month B: refunds outweigh spending — net SUM(-amount_cents) = -50_000 + 200_000 = should be calculated...
+        // Transactions: spending +50_000 credit (positive amount = incoming/refund), refund -200_000 cents = +200_000 when negated
+        // To get a net positive in SUM(-amount_cents), we need SUM(-amount_cents) > 0.
+        // SUM(-amount_cents) > 0 means sum of expenses > 0.
+        // For a month with net positive spending (after all refunds), SUM(-amount_cents) > 0.
+        // For a month to be excluded (refunds > spending): SUM(-amount_cents) <= 0
+        // Example: one transaction of amount_cents=50_000 (a refund/credit) → SUM(-50_000) = -50_000 ≤ 0 → excluded
+        make_tx(&conn, env_id, 50_000, "2026-02-15"); // refund — positive amount
+        // Only Jan qualifies → avg = 100_000
+        let result = get_avg_monthly_essential_spend_cents_inner(&conn).unwrap();
+        assert_eq!(result, 100_000);
+    }
+}
+
 #[cfg(test)]
 mod merchant_rule_tests {
     use crate::migrations;
@@ -2736,5 +5062,87 @@ mod merchant_rule_tests {
         let conn = fresh_conn();
         let err = delete_merchant_rule_inner(&conn, 9999).unwrap_err();
         assert_eq!(err.code, "RULE_NOT_FOUND");
+    }
+}
+
+#[cfg(test)]
+mod envelope_savings_tests {
+    use crate::migrations;
+    use rusqlite::Connection;
+    use super::{CreateEnvelopeInput, UpdateEnvelopeInput};
+    use super::{create_envelope_inner, update_envelope_inner};
+
+    fn fresh_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn).unwrap();
+        conn
+    }
+
+    fn make_envelope(conn: &Connection, name: &str) -> i64 {
+        let input = CreateEnvelopeInput {
+            name: name.to_string(),
+            envelope_type: "Rolling".to_string(),
+            priority: "Need".to_string(),
+            allocated_cents: 0,
+            month_id: None,
+            is_savings: None,
+        };
+        create_envelope_inner(conn, &input).unwrap().id
+    }
+
+    #[test]
+    fn test_update_envelope_savings_already_designated() {
+        let conn = fresh_conn();
+        let id1 = make_envelope(&conn, "ING Savings");
+        let id2 = make_envelope(&conn, "Emergency Fund");
+
+        // Set first envelope as savings — should succeed
+        let result = update_envelope_inner(&conn, &UpdateEnvelopeInput {
+            id: id1,
+            name: None,
+            envelope_type: None,
+            priority: None,
+            allocated_cents: None,
+            month_id: None,
+            is_savings: Some(true),
+        });
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_savings);
+
+        // Attempt to set second envelope as savings — should fail
+        let err = update_envelope_inner(&conn, &UpdateEnvelopeInput {
+            id: id2,
+            name: None,
+            envelope_type: None,
+            priority: None,
+            allocated_cents: None,
+            month_id: None,
+            is_savings: Some(true),
+        }).unwrap_err();
+        assert_eq!(err.code, "SAVINGS_ALREADY_DESIGNATED");
+
+        // Verify first envelope is still savings (unchanged)
+        let first = update_envelope_inner(&conn, &UpdateEnvelopeInput {
+            id: id1,
+            name: None,
+            envelope_type: None,
+            priority: None,
+            allocated_cents: None,
+            month_id: None,
+            is_savings: None,
+        }).unwrap();
+        assert!(first.is_savings);
+
+        // Verify second envelope is NOT savings
+        let second = update_envelope_inner(&conn, &UpdateEnvelopeInput {
+            id: id2,
+            name: None,
+            envelope_type: None,
+            priority: None,
+            allocated_cents: None,
+            month_id: None,
+            is_savings: None,
+        }).unwrap();
+        assert!(!second.is_savings);
     }
 }

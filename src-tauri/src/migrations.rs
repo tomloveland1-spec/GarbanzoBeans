@@ -9,6 +9,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, include_str!("../migrations/005_borrow_schema.sql")),
     (6, include_str!("../migrations/006_transactions.sql")),
     (7, include_str!("../migrations/007_merchant_rules.sql")),
+    (8, include_str!("../migrations/008_savings.sql")),
+    (9, include_str!("../migrations/009_months.sql")),
+    (10, include_str!("../migrations/010_bill_due_dates.sql")),
+    (11, include_str!("../migrations/011_month_income_timing.sql")),
 ];
 
 const _: () = {
@@ -71,7 +75,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 7, "schema_version should be 7 after all migrations");
+        assert_eq!(version, 11, "schema_version should be 11 after all migrations");
     }
 
     #[test]
@@ -83,7 +87,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 7, "version should still be 7 after second run");
+        assert_eq!(version, 11, "version should still be 11 after second run");
     }
 
     #[test]

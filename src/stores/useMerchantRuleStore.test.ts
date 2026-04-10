@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { useMerchantRuleStore } from './useMerchantRuleStore';
-import type { MerchantRule } from '@/lib/types';
+import { useTransactionStore } from './useTransactionStore';
+import type { MerchantRule, Transaction } from '@/lib/types';
 
 // Mock Tauri invoke so tests don't require a running Tauri backend
 vi.mock('@tauri-apps/api/core', () => ({
@@ -216,6 +217,85 @@ describe('useMerchantRuleStore', () => {
       });
       const conflicts = useMerchantRuleStore.getState().conflictingRules();
       expect(conflicts).toHaveLength(0);
+    });
+  });
+
+  describe('forward-only guarantee (AC2)', () => {
+    const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
+      id: 1,
+      payee: 'KROGER #0423',
+      amountCents: -5000,
+      date: '2026-01-10',
+      envelopeId: null,
+      isCleared: true,
+      importBatchId: 'import_old',
+      createdAt: '2026-01-10T00:00:00Z',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      useTransactionStore.setState({
+        transactions: [
+          makeTx({ id: 10, envelopeId: null }),
+          makeTx({ id: 11, envelopeId: null }),
+        ],
+        isWriting: false,
+        error: null,
+        importResult: null,
+        importError: null,
+      });
+    });
+
+    it('createRule does not modify existing transactions in useTransactionStore', async () => {
+      const created = makeRule({ id: 99, payeeSubstring: 'Kroger', envelopeId: 5 });
+      mockInvoke.mockResolvedValueOnce(created);
+
+      await useMerchantRuleStore.getState().createRule({ payeeSubstring: 'Kroger', envelopeId: 5 });
+
+      const txs = useTransactionStore.getState().transactions;
+      expect(txs).toHaveLength(2);
+      expect(txs[0]!.envelopeId).toBeNull();
+      expect(txs[1]!.envelopeId).toBeNull();
+    });
+
+    it('createRule never calls update_transaction (forward-only: only future imports are affected)', async () => {
+      const created = makeRule({ id: 99, payeeSubstring: 'Kroger', envelopeId: 5 });
+      mockInvoke.mockResolvedValueOnce(created);
+
+      await useMerchantRuleStore.getState().createRule({ payeeSubstring: 'Kroger', envelopeId: 5 });
+
+      const updateTransactionCalls = mockInvoke.mock.calls.filter(
+        ([cmd]) => cmd === 'update_transaction',
+      );
+      expect(updateTransactionCalls).toHaveLength(0);
+    });
+
+    it('updateRule does not modify existing transactions in useTransactionStore', async () => {
+      const existing = makeRule({ id: 1, payeeSubstring: 'Kroger', envelopeId: 5 });
+      useMerchantRuleStore.setState({ rules: [existing] });
+      const updated = makeRule({ id: 1, payeeSubstring: 'KROGER', envelopeId: 5, version: 2 });
+      mockInvoke.mockResolvedValueOnce(updated);
+
+      await useMerchantRuleStore.getState().updateRule({ id: 1, payeeSubstring: 'KROGER' });
+
+      const txs = useTransactionStore.getState().transactions;
+      expect(txs).toHaveLength(2);
+      expect(txs[0]!.envelopeId).toBeNull();
+      expect(txs[1]!.envelopeId).toBeNull();
+    });
+
+    it('updateRule never calls update_transaction (forward-only: past transactions are immutable)', async () => {
+      const existing = makeRule({ id: 1, payeeSubstring: 'Kroger', envelopeId: 5 });
+      useMerchantRuleStore.setState({ rules: [existing] });
+      const updated = makeRule({ id: 1, payeeSubstring: 'KROGER', envelopeId: 5, version: 2 });
+      mockInvoke.mockResolvedValueOnce(updated);
+
+      await useMerchantRuleStore.getState().updateRule({ id: 1, payeeSubstring: 'KROGER' });
+
+      const updateTransactionCalls = mockInvoke.mock.calls.filter(
+        ([cmd]) => cmd === 'update_transaction',
+      );
+      expect(updateTransactionCalls).toHaveLength(0);
     });
   });
 });

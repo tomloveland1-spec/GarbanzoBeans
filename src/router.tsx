@@ -12,12 +12,15 @@ import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
 import { useIncomeStore } from '@/stores/useIncomeStore';
 import { useTransactionStore } from '@/stores/useTransactionStore';
 import { useMerchantRuleStore } from '@/stores/useMerchantRuleStore';
+import { useSavingsStore } from '@/stores/useSavingsStore';
 import { pastTwelveMonths } from '@/lib/date-utils';
 import OnboardingPage from '@/features/settings/OnboardingPage';
 import SettingsPage from '@/features/settings/SettingsPage';
 import BudgetPage from '@/features/envelopes/BudgetPage';
 import AllocationPage from '@/features/envelopes/AllocationPage';
 import LedgerPage from '@/features/transactions/LedgerPage';
+import MerchantRulesScreen from '@/features/merchant-rules/MerchantRulesScreen';
+import TurnTheMonthWizard from '@/features/month/TurnTheMonthWizard';
 
 // Guard: redirect to /onboarding if not yet onboarded.
 // Uses getState() — not the hook — because hooks cannot be called outside React components.
@@ -67,6 +70,9 @@ const rootRoute = createRootRoute({
     const currentMonth = pastTwelveMonths()[0];
     await useTransactionStore.getState().loadTransactions(currentMonth);
     await useMerchantRuleStore.getState().loadRules();
+    await useSavingsStore.getState().loadReconciliations();
+    await useSavingsStore.getState().loadAvgMonthlyEssentialSpend();
+    await useMonthStore.getState().loadMonthStatus();
   },
 });
 
@@ -96,7 +102,7 @@ const ledgerRoute = createRoute({
 const merchantRulesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/merchant-rules',
-  component: () => <div className="p-6 type-body" style={{ color: 'var(--color-text-primary)' }}>Merchant Rules — coming in Epic 4</div>,
+  component: MerchantRulesScreen,
   beforeLoad: () => {
     guardOnboarding();
     guardTurnTheMonth();
@@ -145,7 +151,7 @@ const allocationRoute = createRoute({
 const turnTheMonthRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/turn-the-month',
-  component: () => <div className="p-6 type-body" style={{ color: 'var(--color-text-primary)' }}>Turn the Month — coming in Epic 6</div>,
+  component: TurnTheMonthWizard,
   beforeLoad: () => {
     const { monthStatus } = useMonthStore.getState();
     if (!monthStatus.startsWith('closing:')) {

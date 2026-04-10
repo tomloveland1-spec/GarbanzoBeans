@@ -82,6 +82,9 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
     }
   }
 
+  const savingsEnvelopeIds = new Set(envelopes.filter((e) => e.isSavings).map((e) => e.id));
+  const isSavingsTx = transaction.envelopeId !== null && savingsEnvelopeIds.has(transaction.envelopeId);
+
   const category =
     transaction.envelopeId !== null
       ? (envelopeMap.get(transaction.envelopeId) ?? 'Unknown')
@@ -227,7 +230,18 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
             }}
           />
         ) : (
-          formatCurrency(transaction.amountCents)
+          <>
+            {formatCurrency(transaction.amountCents)}
+            {isSavingsTx && (
+              <span
+                className="type-caption"
+                style={{ display: 'block', color: 'var(--color-text-secondary)' }}
+                data-testid="savings-direction"
+              >
+                {transaction.amountCents < 0 ? '↓ deposited' : '↑ withdrew'}
+              </span>
+            )}
+          </>
         )}
       </td>
     </tr>

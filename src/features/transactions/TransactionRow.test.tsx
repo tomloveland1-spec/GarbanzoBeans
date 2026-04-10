@@ -236,6 +236,41 @@ describe('TransactionRow — inline editing', () => {
     expect(screen.queryByTestId('matched-rule-label')).not.toBeInTheDocument();
   });
 
+  // ── Savings directional indicator ────────────────────────────────────────
+
+  it('shows "↓ deposited" for savings transaction with negative amountCents', () => {
+    const savingsEnv = makeEnvelope({ id: 5, name: 'ING Savings', isSavings: true });
+    const tx = makeTx({ envelopeId: 5, amountCents: -30000 });
+    renderRow(tx, [savingsEnv]);
+
+    const indicator = screen.getByTestId('savings-direction');
+    expect(indicator).toHaveTextContent('↓ deposited');
+  });
+
+  it('shows "↑ withdrew" for savings transaction with positive amountCents', () => {
+    const savingsEnv = makeEnvelope({ id: 5, name: 'ING Savings', isSavings: true });
+    const tx = makeTx({ envelopeId: 5, amountCents: 10000 });
+    renderRow(tx, [savingsEnv]);
+
+    const indicator = screen.getByTestId('savings-direction');
+    expect(indicator).toHaveTextContent('↑ withdrew');
+  });
+
+  it('shows no directional indicator for non-savings transaction', () => {
+    const regularEnv = makeEnvelope({ id: 3, name: 'Groceries', isSavings: false });
+    const tx = makeTx({ envelopeId: 3, amountCents: -5000 });
+    renderRow(tx, [regularEnv]);
+
+    expect(screen.queryByTestId('savings-direction')).not.toBeInTheDocument();
+  });
+
+  it('shows no directional indicator when transaction has no envelope', () => {
+    const tx = makeTx({ envelopeId: null, amountCents: -5000 });
+    renderRow(tx, []);
+
+    expect(screen.queryByTestId('savings-direction')).not.toBeInTheDocument();
+  });
+
   it('category "None" calls updateTransaction with clearEnvelopeId: true', async () => {
     const env = makeEnvelope({ id: 7, name: 'Groceries' });
     renderRow(makeTx({ envelopeId: 7 }), [env]);

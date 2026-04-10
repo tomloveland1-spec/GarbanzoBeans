@@ -131,6 +131,21 @@ pub fn run() {
             commands::create_merchant_rule,
             commands::update_merchant_rule,
             commands::delete_merchant_rule,
+            commands::get_savings_reconciliations,
+            commands::record_reconciliation,
+            commands::get_savings_transactions_since,
+            commands::get_avg_monthly_essential_spend_cents,
+            commands::get_savings_flow_by_month,
+            commands::get_current_month,
+            commands::open_month,
+            commands::advance_turn_the_month_step,
+            commands::close_month,
+            commands::begin_turn_the_month,
+            commands::get_closeout_summary,
+            commands::get_bill_date_suggestions,
+            commands::confirm_bill_dates,
+            commands::get_income_timing_suggestions,
+            commands::confirm_income_timing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

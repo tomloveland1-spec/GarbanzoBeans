@@ -46,6 +46,7 @@ const makeEnvelope = (overrides: Partial<Envelope> = {}): Envelope => ({
   allocatedCents: 12345,
   monthId: null,
   createdAt: '2026-01-01T00:00:00Z',
+  isSavings: false,
   ...overrides,
 });
 
@@ -219,6 +220,25 @@ describe('EnvelopeCard', () => {
     await waitFor(() => {
       expect(useEnvelopeStore.getState().deleteEnvelope).toHaveBeenCalledWith(42);
     });
+  });
+
+  it('"Set as Savings" menu item renders when isSavings = false', async () => {
+    const user = userEvent.setup();
+    const envelope = makeEnvelope({ isSavings: false });
+    renderCard(envelope);
+
+    await user.click(screen.getByRole('button', { name: 'Envelope actions' }));
+    expect(await screen.findByText('Set as Savings')).toBeInTheDocument();
+  });
+
+  it('"Set as Savings" menu item does NOT render when isSavings = true', async () => {
+    const user = userEvent.setup();
+    const envelope = makeEnvelope({ isSavings: true });
+    renderCard(envelope);
+
+    await user.click(screen.getByRole('button', { name: 'Envelope actions' }));
+    await screen.findByText('Edit'); // wait for menu to open
+    expect(screen.queryByText('Set as Savings')).not.toBeInTheDocument();
   });
 
   it('clicking Edit in dropdown opens edit dialog with type and priority selects', async () => {

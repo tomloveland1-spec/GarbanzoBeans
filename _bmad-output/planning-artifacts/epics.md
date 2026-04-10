@@ -1225,3 +1225,159 @@ So that the new month opens with a funded budget and the ceremony feels complete
 **Given** the new month opens
 **When** the Budget screen renders
 **Then** the Savings Card shows updated deposit status and streak count if applicable; the Arc Gauge reflects any runway change from the month's savings flow
+
+---
+
+## Epic 7: Polish & Deferred Work — The App Earns Daily Use
+
+The app is functionally complete. This epic addresses known UX gaps, visual regressions, and deferred bugs logged during code review and QA walkthroughs across epics 1–6. The goal is a release-ready product with no rough edges that would undermine Tom's confidence in the tool.
+
+### Story 7.1: Launch & Global UI Polish
+
+As Tom,
+I want the app to open cleanly and feel polished at the global level,
+So that first impressions and everyday interactions feel intentional and high-quality.
+
+**Acceptance Criteria:**
+
+**Given** the app window opens on any machine
+**When** the Tauri shell loads before React hydrates
+**Then** the window background is `#111214` from the very first paint — no white flash before the dark theme loads (fix: add `background-color: #111214` to `<html>` or `<body>` in `index.html`)
+
+**Given** the app is running a production/release build
+**When** any screen renders
+**Then** the TanStack Router devtools badge is not visible; it only appears when `NODE_ENV=development`
+
+**Given** the user hovers an inactive nav item in the sidebar (Ledger, Rules, Settings)
+**When** the pointer is over the item
+**Then** a `rgba(255,255,255,0.07)` background tint is applied matching the design spec hover state; active and hover states are visually distinct
+
+---
+
+### Story 7.2: Read-Only Mode Enforcement
+
+As Tom,
+I want the UI to fully enforce read-only mode when a second instance has the lock,
+So that I cannot accidentally mutate data from the secondary window.
+
+**Acceptance Criteria:**
+
+**Given** the app is running in read-only mode (`isReadOnly = true`)
+**When** the Budget screen renders
+**Then** the Add Envelope button is disabled and non-interactive; the ⋯ action button on every envelope card is hidden or disabled; no mutation can be triggered from this instance
+
+**Given** the app is running in read-only mode
+**When** the Ledger screen renders
+**Then** the Add Transaction button and OFX import button are disabled and non-interactive
+
+**Given** the app is running in read-only mode
+**When** any write action is attempted programmatically
+**Then** the store guard or UI guard prevents the call from reaching the Tauri backend; the read-only banner remains visible
+
+---
+
+### Story 7.3: Settings Screen Completeness
+
+As Tom,
+I want the Settings screen to work correctly and expose all configurable fields,
+So that I can manage my budget without hitting raw database errors or missing options.
+
+**Acceptance Criteria:**
+
+**Given** the Settings screen is open with no changes made
+**When** Tom looks at the Save button
+**Then** the Save button is disabled; it only becomes enabled after at least one field value differs from the persisted setting
+
+**Given** Tom opens Settings and clicks Save without changing anything
+**When** the save handler fires
+**Then** no Tauri command is invoked; no error is shown; the button remains disabled
+
+**Given** Tom opens Settings and saves
+**When** the `upsert_settings` command is invoked
+**Then** the payload always includes `onboarding_complete` (preserving the existing value); the NOT NULL constraint is never violated; no raw SQLite error text reaches the UI
+
+**Given** the Settings screen renders
+**When** Tom views the form fields
+**Then** a Budget Name text field is present, pre-populated with the current budget name; a Budget Start Month field is present, showing the current start month in human-readable format (e.g. "April 2026", not "2026-04"); both fields persist correctly on save
+
+---
+
+### Story 7.4: Envelope Card & Actions Completeness
+
+As Tom,
+I want each envelope card to display complete financial data and support a full edit flow,
+So that I can see and manage my envelopes without ambiguity.
+
+**Acceptance Criteria:**
+
+**Given** an envelope card is rendered
+**When** Tom looks at the card
+**Then** three labelled values are shown: "Allocated" (the budgeted amount), "Spent" (transactions charged to this envelope this month), and "Remaining" (allocated minus spent); no amount appears without a label
+
+**Given** Tom clicks the ⋯ button on an envelope card
+**When** the action menu opens
+**Then** two options are presented: "Edit" and "Delete"; clicking outside the menu dismisses it without action
+
+**Given** Tom clicks "Edit" from the ⋯ menu
+**When** the edit form opens
+**Then** all envelope fields are editable: name, type (Rolling/Bill/Goal), and category (Need/Want); the form pre-populates with current values; saving commits the update; cancelling discards changes
+
+**Given** the Budget screen has no envelopes
+**When** the empty state renders
+**Then** an empty-state message is shown (e.g. "No envelopes yet. Add one to start budgeting.") with the Add Envelope button; the screen is not a blank canvas
+
+**Given** the ⋯ button renders on an envelope card
+**When** a screen reader encounters it
+**Then** the `aria-label` accurately describes the action (e.g. "Envelope options" or "Open envelope menu"), not "Envelope settings"
+
+---
+
+### Story 7.5: Turn the Month — Graceful Escape
+
+As Tom,
+I want to be able to defer the Turn the Month ceremony without being locked out of the app,
+So that I can finish entering transactions before closing the month.
+
+**Acceptance Criteria:**
+
+**Given** Turn the Month wizard is active (month status is `closing:step-1` through `closing:step-4`)
+**When** any wizard step renders
+**Then** a "Not yet — finish later" button or link is visible; clicking it dismisses the wizard and returns Tom to normal app use (Budget screen or last viewed screen)
+
+**Given** Tom dismisses the wizard via "Not yet"
+**When** the app is in normal use
+**Then** the month status remains `closing:step-N` (not reset); a persistent but non-blocking prompt appears in a consistent location (e.g. top of sidebar or a toast-style banner) reminding Tom to complete the ceremony; the prompt includes a "Continue" link that re-opens the wizard at the current step
+
+**Given** Tom re-opens the wizard via the persistent prompt
+**When** the wizard renders
+**Then** it resumes at the step where Tom left off; no data is lost; all previously confirmed entries (bill dates, income timing) are preserved
+
+**Given** Tom is on the last day of a month with `closing:step-1` status but has not yet entered all transactions
+**When** he uses the app normally
+**Then** he can navigate freely to Ledger, Rules, and Settings; the TTM route guard does not force him back to the wizard; the persistent prompt remains visible
+
+---
+
+### Story 7.6: Onboarding UX Uplift
+
+As a new user (Tom),
+I want onboarding to feel like a welcoming product experience with clear visual context for each step,
+So that I understand why each feature matters before I'm asked to configure it.
+
+**Acceptance Criteria:**
+
+**Given** the onboarding flow renders any step
+**When** the screen paints
+**Then** the form content (heading, fields, navigation buttons) is vertically and horizontally centred in the viewport; there is no large empty area above or below the content
+
+**Given** the onboarding step that asks for the Budget Start Month
+**When** the month selector renders
+**Then** it is a proper month/year picker control (not a scrollable list of ISO strings); displayed values are human-readable (e.g. "April 2026", not "2026-04"); the picker does not overlap other form elements
+
+**Given** any onboarding step renders
+**When** Tom views the screen
+**Then** a compelling illustration or graphic relevant to that step's feature is displayed alongside the input form; copy explains *why* the feature matters before asking for input (e.g. step 4 savings target: show a wealth/growth visual and frame the target as an aspirational goal, not a hard limit)
+
+**Given** the savings target step renders
+**When** Tom reads the copy
+**Then** the framing is aspirational (e.g. "Set your savings goal" with subtext "We'll track your progress each month") — not a ceiling or commitment; no language implies the user will be penalised for falling short
