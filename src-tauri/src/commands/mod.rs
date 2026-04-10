@@ -860,6 +860,7 @@ pub struct Transaction {
     pub is_cleared: bool,          // index 5 — stored as i64 0/1
     pub import_batch_id: Option<String>, // index 6 — nullable
     pub created_at: String,        // index 7 — ISO 8601 UTC
+    pub memo: Option<String>,      // index 8 — nullable user note
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -883,6 +884,7 @@ pub struct UpdateTransactionInput {
     pub envelope_id: Option<i64>,
     pub clear_envelope_id: Option<bool>, // when true, sets envelope_id = NULL regardless of envelope_id field
     pub is_cleared: Option<bool>,
+    pub memo: Option<String>,
 }
 
 // --- Transaction row mapper (shared across get/create/update) ---
@@ -897,6 +899,7 @@ fn map_transaction_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Transaction>
         is_cleared: row.get::<_, i64>(5)? != 0,
         import_batch_id: row.get::<_, Option<String>>(6)?,
         created_at: row.get(7)?,
+        memo: row.get::<_, Option<String>>(8)?,
     })
 }
 
@@ -947,7 +950,7 @@ fn get_transactions_inner(
         let lower = format!("{}-01", ym);
         let upper = next_month(ym);
         let mut stmt = conn.prepare(
-            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
+            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo \
              FROM transactions WHERE date >= ?1 AND date < ?2 ORDER BY date DESC, id DESC",
         )?;
         let rows = stmt
@@ -957,7 +960,7 @@ fn get_transactions_inner(
         Ok(rows)
     } else {
         let mut stmt = conn.prepare(
-            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
+            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo \
              FROM transactions ORDER BY date DESC, id DESC",
         )?;
         let rows = stmt
@@ -989,7 +992,7 @@ fn create_transaction_inner(
     )?;
     let id = tx.last_insert_rowid();
     let row = tx.query_row(
-        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
+        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo \
          FROM transactions WHERE id = ?1",
         rusqlite::params![id],
         map_transaction_row,
@@ -1010,7 +1013,8 @@ fn update_transaction_inner(
            amount_cents = COALESCE(?3, amount_cents),
            date         = COALESCE(?4, date),
            envelope_id  = CASE WHEN ?7 = 1 THEN NULL ELSE COALESCE(?5, envelope_id) END,
-           is_cleared   = COALESCE(?6, is_cleared)
+           is_cleared   = COALESCE(?6, is_cleared),
+           memo         = COALESCE(?8, memo)
          WHERE id = ?1",
         rusqlite::params![
             input.id,
@@ -1020,6 +1024,7 @@ fn update_transaction_inner(
             input.envelope_id,
             input.is_cleared.map(|b| if b { 1i64 } else { 0i64 }),
             if input.clear_envelope_id.unwrap_or(false) { 1i64 } else { 0i64 },
+            input.memo.as_deref(),
         ],
     )?;
 
@@ -1031,7 +1036,7 @@ fn update_transaction_inner(
     }
 
     let row = tx.query_row(
-        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at \
+        "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo \
          FROM transactions WHERE id = ?1",
         rusqlite::params![input.id],
         map_transaction_row,
@@ -1155,6 +1160,7 @@ mod transaction_tests {
             envelope_id: None,
             clear_envelope_id: None,
             is_cleared: Some(true),
+            memo: None,
         }).unwrap();
 
         assert_eq!(updated.id, created.id);
@@ -1175,6 +1181,7 @@ mod transaction_tests {
             envelope_id: None,
             clear_envelope_id: None,
             is_cleared: None,
+            memo: None,
         }).unwrap_err();
         assert_eq!(err.code, "TRANSACTION_NOT_FOUND");
     }
@@ -1199,6 +1206,7 @@ mod transaction_tests {
             envelope_id: None,
             clear_envelope_id: None,
             is_cleared: None,
+            memo: None,
         }).unwrap();
         assert_eq!(before.envelope_id, Some(1));
 
@@ -1211,6 +1219,7 @@ mod transaction_tests {
             envelope_id: None,
             clear_envelope_id: Some(true),
             is_cleared: None,
+            memo: None,
         }).unwrap();
         assert!(after.envelope_id.is_none(), "envelope_id should be cleared to NULL");
     }

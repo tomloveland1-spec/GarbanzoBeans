@@ -115,6 +115,7 @@ export interface Transaction {
   isCleared: boolean;
   importBatchId: string | null; // null = manually entered
   createdAt: string;           // ISO 8601 UTC
+  memo: string | null;         // optional user note
 }
 
 // Input for create_transaction Tauri command.
@@ -155,6 +156,7 @@ export interface UpdateTransactionInput {
   envelopeId?: number | null;
   clearEnvelopeId?: boolean; // When true, sets envelopeId to null (un-categorizes the transaction)
   isCleared?: boolean;
+  memo?: string | null;
 }
 
 // MerchantRule domain types — mirrors Rust MerchantRule struct in commands/mod.rs

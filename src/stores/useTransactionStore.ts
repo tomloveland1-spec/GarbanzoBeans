@@ -121,6 +121,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
         ...(input.date !== undefined ? { date: input.date } : {}),
         ...(input.isCleared !== undefined ? { isCleared: input.isCleared } : {}),
         ...(input.clearEnvelopeId ? { envelopeId: null } : input.envelopeId !== undefined ? { envelopeId: input.envelopeId } : {}),
+        ...(input.memo !== undefined ? { memo: input.memo } : {}),
       };
     });
     set({ transactions: optimistic, isWriting: true, error: null });

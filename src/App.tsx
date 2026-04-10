@@ -52,7 +52,7 @@ function App() {
         {/* Sidebar — Forest Deep */}
         <aside
           data-testid="sidebar"
-          className="w-[220px] shrink-0 flex flex-col py-6 px-4 gap-2"
+          className="w-[176px] shrink-0 flex flex-col py-6 px-4 gap-2"
           style={{ backgroundColor: 'var(--color-bg-sidebar)' }}
         >
           {/* Logo / App name */}

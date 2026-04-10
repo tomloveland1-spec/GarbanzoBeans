@@ -55,6 +55,7 @@ const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
   isCleared: true,
   importBatchId: null,
   createdAt: '2026-01-15T00:00:00Z',
+  memo: null,
   ...overrides,
 });
 
@@ -85,7 +86,7 @@ describe('LedgerView', () => {
   it('renders empty state when transactions array is empty', () => {
     render(<LedgerView />);
     expect(
-      screen.getByText('No transactions yet — import an OFX file above to get started'),
+      screen.getByText('No transactions yet — use Import OFX to get started'),
     ).toBeInTheDocument();
   });
 
@@ -93,6 +94,12 @@ describe('LedgerView', () => {
     render(<LedgerView />);
     expect(screen.getByText('Cleared')).toBeInTheDocument();
     expect(screen.getByText('Working')).toBeInTheDocument();
+  });
+
+  it('renders Inflow and Outflow balance labels', () => {
+    render(<LedgerView />);
+    expect(screen.getByText('Inflow')).toBeInTheDocument();
+    expect(screen.getByText('Outflow')).toBeInTheDocument();
   });
 
   it('computes cleared balance from only is_cleared=true transactions', () => {
@@ -107,20 +114,20 @@ describe('LedgerView', () => {
     expect(screen.getByTestId('balance-working')).toHaveTextContent('-$80.00');
   });
 
-  it('renders "Uncategorized" when envelopeId is null', () => {
+  it('renders category pill with "Uncategorized" when envelopeId is null', () => {
     mockTransactionState.transactions = [makeTx({ envelopeId: null })];
     render(<LedgerView />);
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });
 
-  it('renders envelope name when envelopeId is non-null and envelope exists', () => {
+  it('renders envelope name pill when envelopeId is non-null and envelope exists', () => {
     mockEnvelopeState.envelopes = [makeEnvelope({ id: 7, name: 'Groceries' })];
     mockTransactionState.transactions = [makeTx({ envelopeId: 7 })];
     render(<LedgerView />);
     expect(screen.getByText('Groceries')).toBeInTheDocument();
   });
 
-  it('renders "Unknown" when envelopeId is non-null but envelope not in map', () => {
+  it('renders "Unknown" pill when envelopeId is non-null but envelope not in map', () => {
     mockEnvelopeState.envelopes = [];
     mockTransactionState.transactions = [makeTx({ envelopeId: 999 })];
     render(<LedgerView />);
@@ -166,7 +173,6 @@ describe('LedgerView', () => {
   it('renders matched-rule label for auto-categorized transactions in latest import', () => {
     const env = makeEnvelope({ id: 7, name: 'Groceries' });
     mockEnvelopeState.envelopes = [env];
-    // Transaction 1 was auto-categorized via "Kroger" rule → envelopeId = 7
     mockTransactionState.transactions = [
       makeTx({ id: 10, envelopeId: 7, importBatchId: 'import_abc' }),
     ];
@@ -220,9 +226,7 @@ describe('LedgerView', () => {
     ];
     const { container } = render(<LedgerView />);
     const rows = container.querySelectorAll('tbody tr');
-    // First row (cleared) should not have opacity 0.5
     expect((rows[0] as HTMLElement).style.opacity).not.toBe('0.5');
-    // Second row (uncleared) should have opacity 0.5
     expect((rows[1] as HTMLElement).style.opacity).toBe('0.5');
   });
 
@@ -305,7 +309,6 @@ describe('LedgerView', () => {
         conflictedIds: [60],
       };
       render(<LedgerView />);
-      // ID 60 appears in both arrays — should render exactly one queue row
       expect(screen.getAllByTestId(/^queue-item-/)).toHaveLength(1);
     });
   });
@@ -317,8 +320,6 @@ describe('LedgerView', () => {
   });
 
   it('does NOT render matched-rule label for a transaction not in a subsequent import batch', () => {
-    // Transaction 10 was annotated in a previous import batch.
-    // A new import arrives whose categorizedAnnotations does NOT include ID 10 — the label must disappear.
     mockEnvelopeState.envelopes = [makeEnvelope({ id: 7, name: 'Groceries' })];
     mockTransactionState.transactions = [
       makeTx({ id: 10, envelopeId: 7, importBatchId: 'import_old' }),
@@ -329,7 +330,7 @@ describe('LedgerView', () => {
       latestDate: '2026-10-15',
       transactions: [makeTx({ id: 99, envelopeId: null })],
       matchedTransactions: [],
-      categorizedAnnotations: {},  // ID 10 is NOT annotated in the new batch
+      categorizedAnnotations: {},
       uncategorizedIds: [99],
       conflictedIds: [],
     };

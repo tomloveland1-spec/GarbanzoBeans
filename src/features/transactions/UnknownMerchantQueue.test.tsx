@@ -38,6 +38,7 @@ const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
   isCleared: true,
   importBatchId: 'import_abc',
   createdAt: '2026-04-05T00:00:00Z',
+  memo: null,
   ...overrides,
 });
 
