@@ -79,7 +79,7 @@ export default function TransactionDetailPanel({ transaction, envelopes, onClose
     <div
       className="flex flex-col shrink-0"
       style={{
-        width: '340px',
+        width: '380px',
         borderLeft: '1px solid var(--color-border)',
         backgroundColor: 'var(--color-bg-surface)',
         overflowY: 'auto',
@@ -172,7 +172,7 @@ export default function TransactionDetailPanel({ transaction, envelopes, onClose
 
         <div className="flex flex-col gap-1">
           <label className="type-label" style={{ color: 'var(--color-text-secondary)' }}>
-            Memo
+            Memo <span style={{ fontWeight: 400, opacity: 0.65 }}>(optional)</span>
           </label>
           <textarea
             value={memo}
@@ -200,7 +200,7 @@ export default function TransactionDetailPanel({ transaction, envelopes, onClose
           </div>
         )}
 
-        <Button onClick={handleSave} disabled={isSaving}>
+        <Button className="w-full" onClick={handleSave} disabled={isSaving}>
           {isSaving ? 'Saving…' : 'Save'}
         </Button>
       </div>

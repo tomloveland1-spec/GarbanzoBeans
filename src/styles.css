@@ -6,7 +6,7 @@
 @theme {
   --color-bg-app: #111214;
   --color-bg-surface: #1C1E21;
-  --color-bg-sidebar: #0F2218;
+  --color-bg-sidebar: #16181A;
   --color-text-primary: #EEEEF0;
   --color-text-secondary: #888A90;
   --color-border: #26282C;
@@ -32,6 +32,8 @@
   --color-forest-deep: #0F2218;
   --color-neutral-black: #111214;
   --color-neutral-surface: #1C1E21;
+  --color-positive: #6DBF6A;
+  --color-negative: #D96B6B;
 
   /* shadcn/ui slot variables — mapped to Dark Forest tokens */
   --background: #111214;

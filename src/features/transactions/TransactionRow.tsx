@@ -29,7 +29,7 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
     : (envelopeMap.get(transaction.envelopeId!) ?? 'Unknown');
 
   const amount = transaction.amountCents;
-  const amountColor = amount >= 0 ? 'var(--color-envelope-green)' : 'var(--color-red)';
+  const amountColor = amount >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
 
   return (
     <tr
@@ -37,23 +37,28 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
       className="type-body"
       style={{
         cursor: 'pointer',
-        opacity: transaction.isCleared ? undefined : 0.5,
-        backgroundColor: isSelected ? 'rgba(192, 245, 0, 0.05)' : undefined,
+        opacity: transaction.isCleared ? undefined : 0.55,
+        backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.05)' : undefined,
         borderBottom: '1px solid var(--color-border)',
       }}
     >
       {/* Date */}
-      <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+      <td
+        className="px-4 py-3"
+        style={{ color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', width: '80px' }}
+      >
         {formatTxDate(transaction.date)}
       </td>
 
-      {/* Payee */}
-      <td className="px-4 py-2" style={{ color: 'var(--color-text-primary)' }}>
-        {transaction.payee}
+      {/* Payee — primary text, medium weight */}
+      <td className="px-4 py-3 min-w-0" style={{ color: 'var(--color-text-primary)' }}>
+        <div style={{ fontWeight: 500 }} className="truncate">
+          {transaction.payee}
+        </div>
         {matchedRuleLabel && (
           <span
             className="type-caption"
-            style={{ display: 'block', color: 'var(--color-text-secondary)' }}
+            style={{ display: 'block', color: 'var(--color-text-secondary)', marginTop: '1px' }}
             data-testid="matched-rule-label"
           >
             {matchedRuleLabel}
@@ -62,16 +67,16 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
       </td>
 
       {/* Category */}
-      <td className="px-4 py-2">
+      <td className="px-4 py-3">
         <span
           className="type-caption"
           style={{
             display: 'inline-block',
-            padding: '2px 8px',
-            borderRadius: '12px',
+            padding: '1px 7px',
+            borderRadius: '10px',
             backgroundColor: isUncategorized
-              ? 'rgba(245, 168, 0, 0.13)'
-              : 'rgba(255, 255, 255, 0.06)',
+              ? 'rgba(245, 168, 0, 0.12)'
+              : 'rgba(255, 255, 255, 0.05)',
             color: isUncategorized ? 'var(--color-amber)' : 'var(--color-text-secondary)',
           }}
         >
@@ -79,20 +84,43 @@ export default function TransactionRow({ transaction, envelopeMap, envelopes, ma
         </span>
       </td>
 
-      {/* Status */}
-      <td className="px-4 py-2 text-center" style={{ width: '60px' }}>
+      {/* Memo */}
+      <td
+        className="px-4 py-3"
+        style={{
+          color: 'var(--color-text-secondary)',
+          maxWidth: '200px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+        title={transaction.memo ?? undefined}
+      >
+        {transaction.memo ?? ''}
+      </td>
+
+      {/* Cleared — muted indicator */}
+      <td className="px-4 py-3 text-center" style={{ width: '72px' }}>
         {transaction.isCleared ? (
-          <span style={{ color: 'var(--color-envelope-green)', fontSize: '12px' }}>✓</span>
+          <span
+            style={{ color: 'var(--color-text-secondary)', fontSize: '13px', opacity: 0.7 }}
+            aria-label="Cleared"
+          >
+            ✓
+          </span>
         ) : (
-          <span style={{ color: 'var(--color-text-secondary)', fontSize: '11px', opacity: 0.4 }}>
+          <span
+            style={{ color: 'var(--color-text-secondary)', fontSize: '11px', opacity: 0.3 }}
+            aria-label="Pending"
+          >
             ○
           </span>
         )}
       </td>
 
-      {/* Amount */}
+      {/* Amount — right-aligned, tabular nums */}
       <td
-        className="px-4 py-2 text-right"
+        className="px-4 py-3 text-right"
         style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: amountColor }}
       >
         {formatCurrency(amount)}

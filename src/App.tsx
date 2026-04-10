@@ -52,14 +52,14 @@ function App() {
         {/* Sidebar — Forest Deep */}
         <aside
           data-testid="sidebar"
-          className="w-[176px] shrink-0 flex flex-col py-6 px-4 gap-2"
+          className="w-[160px] shrink-0 flex flex-col py-6 px-4 gap-2"
           style={{ backgroundColor: 'var(--color-bg-sidebar)' }}
         >
           {/* Logo / App name */}
           <div className="mb-6 px-2">
             <span
               className="type-h1 font-bold tracking-tight"
-              style={{ color: 'var(--color-sidebar-active)' }}
+              style={{ color: 'var(--color-text-primary)' }}
             >
               GarbanzoBeans
             </span>
@@ -76,8 +76,10 @@ function App() {
                 style={{ color: 'var(--color-sidebar-text)' }}
                 activeProps={{
                   style: {
-                    color: 'var(--color-sidebar-active)',
-                    backgroundColor: 'rgba(192, 245, 0, 0.08)',
+                    color: 'var(--color-text-primary)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+                    fontWeight: 500,
+                    boxShadow: 'inset 2px 0 0 var(--color-sidebar-active)',
                   },
                 }}
               >
