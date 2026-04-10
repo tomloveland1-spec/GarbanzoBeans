@@ -11,6 +11,18 @@ const { mockOnDragDropEvent, mockOpen, mockImportOFX, mockClearImportResult } = 
   mockClearImportResult: vi.fn(),
 }));
 
+// Mock useSettingsStore
+const mockSettingsState = { isReadOnly: false };
+
+vi.mock('@/stores/useSettingsStore', () => ({
+  useSettingsStore: Object.assign(
+    vi.fn((selector: (s: typeof mockSettingsState) => unknown) =>
+      selector(mockSettingsState),
+    ),
+    { getState: vi.fn(() => mockSettingsState) },
+  ),
+}));
+
 // Mock Tauri webview drag-drop API
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({ onDragDropEvent: mockOnDragDropEvent }),
@@ -52,6 +64,7 @@ vi.mock('@/stores/useTransactionStore', () => {
 describe('OFXImporter', () => {
   beforeEach(() => {
     storeState = { ...defaultStoreState };
+    mockSettingsState.isReadOnly = false;
     vi.clearAllMocks();
     mockOnDragDropEvent.mockResolvedValue(() => {});
     mockOpen.mockResolvedValue(null);
@@ -166,6 +179,31 @@ describe('OFXImporter', () => {
 
     expect(screen.getByLabelText('Loading')).toBeInTheDocument();
     expect(mockImportOFX).toHaveBeenCalledWith('/test/import.ofx');
+  });
+
+  it('Browse button is disabled when isReadOnly = true', () => {
+    mockSettingsState.isReadOnly = true;
+    render(<OFXImporter />);
+    expect(screen.getByRole('button', { name: 'Browse…' })).toBeDisabled();
+  });
+
+  it('ignores drop events when isReadOnly = true', async () => {
+    mockSettingsState.isReadOnly = true;
+    type DragPayload = { payload: { type: string; paths?: string[] } };
+    let capturedCallback: ((event: DragPayload) => void) | undefined;
+    mockOnDragDropEvent.mockImplementationOnce((cb: (event: DragPayload) => void) => {
+      capturedCallback = cb;
+      return Promise.resolve(() => {});
+    });
+
+    render(<OFXImporter />);
+    await waitFor(() => expect(capturedCallback).toBeDefined());
+
+    await act(async () => {
+      capturedCallback!({ payload: { type: 'drop', paths: ['/some/file.ofx'] } });
+    });
+
+    expect(mockImportOFX).not.toHaveBeenCalled();
   });
 
   it('complete state omits date section when latestDate is null', () => {

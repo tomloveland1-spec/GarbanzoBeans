@@ -1,5 +1,25 @@
 # Deferred Work
 
+## Deferred from: code review of 7-4-envelope-card-and-actions-completeness (2026-04-09)
+
+- **Spaces-only name save is a silent no-op** — If the user clears the Name field to whitespace and saves, `editName.trim()` is falsy so name is omitted; dialog closes silently with name unchanged. Matches spec "only if non-empty" constraint but gives no user feedback. Not in scope for 7.4.
+- **`handleEditSave` fires store update even when no fields changed** — Type and priority are always included unconditionally; if name is also unchanged, an unnecessary write round-trip fires. Pre-existing for type/priority; name now adds conditional guard. Low impact.
+
+## Deferred from: code review of 7-3-settings-screen-completeness (2026-04-09)
+
+- **`startMonth` not explicitly asserted in new Save payload test** — The new "Save payload" test uses `objectContaining` focused on `budgetName`/`onboardingComplete`; `startMonth` in payload is covered by the existing full-payload test at line 69. Low risk.
+- **Reverting budgetName to original value does not re-disable Save** — No test covers the "dirty → clean" revert path. If the component has a bug here, it would go undetected. Not in scope for 7.3.
+- **`onboardingComplete=false` preservation not tested** — Only the `true` path is exercised. A bug that forces `onboardingComplete` to `true` would not be caught. Not in scope for 7.3.
+
+## Deferred from: code review of 7-2-read-only-mode-enforcement (2026-04-09)
+
+- **TransactionRow inline editing interactive in read-only mode** — TransactionRow.tsx allows users to click into edit mode and type changes; only the store-level `updateTransaction` guard prevents actual writes. No visual feedback that edits will be silently rejected. Out of scope for 7.2 (AC only covers Add Transaction button and OFX import button).
+- **UnknownMerchantQueue category/rule UI not guarded for read-only** — Category dropdown and "Save rule" button in UnknownMerchantQueue.tsx are fully interactive in read-only mode. Store guards (`updateTransaction`, `createRule`) catch writes downstream. No UI-level disabled state. Out of scope for 7.2.
+- **AddTransactionForm could remain open if isReadOnly transitions after render** — Theoretical race: if `isReadOnly` becomes true after the form is already open (showAddForm=true), the form remains accessible with no visual indication. Normal path blocked by button disabled state; store guard catches actual writes. Spec doesn't require form-level guard.
+- **handleBrowse lacks its own isReadOnly guard** — OFXImporter's `handleBrowse` opens the file dialog even in read-only mode if called programmatically (button is disabled for normal use). `handleImport` guards the actual import via `.getState()`. Spec intent satisfied; dialog opening before silent rejection is suboptimal UX.
+- **Stale importResult/importError left in state when importOFX bails early** — When `importOFX` returns early due to `isReadOnly`, any prior non-null `importResult` or `importError` is left in store state. Could display a stale banner. Occurs only in read-only mode where new imports are blocked anyway.
+- **No screen-level test for OFX import button disabled state within LedgerView** — AC #2 requires OFX import button disabled in read-only mode, covered at component level in OFXImporter.test.tsx, but LedgerView.test.tsx has no integration-level assertion confirming OFXImporter renders in a disabled state within its host screen.
+
 ## Deferred from: code review of 7-1-launch-and-global-ui-polish (2026-04-09)
 
 - **Active-state inline style fragility** — `.sidebar-interactive:hover` suppression on the active item relies on `activeProps` inline `backgroundColor` taking CSS precedence over the class rule. If active state is ever moved to a CSS class, hover tint will bleed onto the active item silently. Pre-existing design decision; revisit if active state treatment changes.

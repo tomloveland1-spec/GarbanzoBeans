@@ -140,6 +140,56 @@ describe('SettingsPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('Save button is disabled on initial render (no changes made)', () => {
+    const { upsertSettings } = mockStore();
+    render(<SettingsPage />);
+    expect(screen.getByTestId('save-settings-button')).toBeDisabled();
+    expect(upsertSettings).not.toHaveBeenCalled();
+  });
+
+  it('pre-populates Budget Name input from store settings', () => {
+    mockStore({ budgetName: 'My Budget' });
+    render(<SettingsPage />);
+    const input = screen.getByTestId('budget-name-input') as HTMLInputElement;
+    expect(input.value).toBe('My Budget');
+  });
+
+  it('pre-populates Start Month from store settings', () => {
+    mockStore({ startMonth: '2025-12' });
+    render(<SettingsPage />);
+    expect(screen.getByTestId('start-month-select')).toHaveTextContent('December 2025');
+  });
+
+  it('changing Budget Name enables Save button', () => {
+    mockStore();
+    render(<SettingsPage />);
+    expect(screen.getByTestId('save-settings-button')).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId('budget-name-input'), {
+      target: { value: 'Updated Budget' },
+    });
+    expect(screen.getByTestId('save-settings-button')).not.toBeDisabled();
+  });
+
+  it('Save payload includes updated budgetName and preserves onboardingComplete', async () => {
+    const { upsertSettings } = mockStore({ onboardingComplete: true });
+    render(<SettingsPage />);
+
+    fireEvent.change(screen.getByTestId('budget-name-input'), {
+      target: { value: 'New Name' },
+    });
+    fireEvent.click(screen.getByTestId('save-settings-button'));
+
+    await waitFor(() => {
+      expect(upsertSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetName: 'New Name',
+          onboardingComplete: true,
+        }),
+      );
+    });
+  });
+
   it('re-mounting after store change shows new saved values, not prior local edits', () => {
     const { rerender } = render(<SettingsPage />);
 

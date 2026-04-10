@@ -5,6 +5,14 @@ import type { Transaction, ImportResult, Envelope } from '@/lib/types';
 
 // ── Store mocks ──────────────────────────────────────────────────────────────
 
+const mockSettingsState = { isReadOnly: false };
+
+vi.mock('@/stores/useSettingsStore', () => ({
+  useSettingsStore: vi.fn((selector: (s: typeof mockSettingsState) => unknown) =>
+    selector(mockSettingsState),
+  ),
+}));
+
 const mockTransactionState = {
   transactions: [] as Transaction[],
   importResult: null as ImportResult | null,
@@ -71,6 +79,7 @@ describe('LedgerView', () => {
     mockTransactionState.transactions = [];
     mockTransactionState.importResult = null;
     mockEnvelopeState.envelopes = [];
+    mockSettingsState.isReadOnly = false;
   });
 
   it('renders empty state when transactions array is empty', () => {
@@ -299,6 +308,12 @@ describe('LedgerView', () => {
       // ID 60 appears in both arrays — should render exactly one queue row
       expect(screen.getAllByTestId(/^queue-item-/)).toHaveLength(1);
     });
+  });
+
+  it('disables Add Transaction button when isReadOnly = true', () => {
+    mockSettingsState.isReadOnly = true;
+    render(<LedgerView />);
+    expect(screen.getByRole('button', { name: /add transaction/i })).toBeDisabled();
   });
 
   it('does NOT render matched-rule label for a transaction not in a subsequent import batch', () => {

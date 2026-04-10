@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import type { Envelope, EnvelopeType, EnvelopePriority } from '@/lib/types';
 import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useTransactionStore } from '@/stores/useTransactionStore';
 import { formatCurrency } from '@/lib/currency';
 import BorrowOverlay from './BorrowOverlay';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +53,7 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
   const [isBorrowOpen, setIsBorrowOpen] = useState(false);
   const [envelopeType, setEnvelopeType] = useState<EnvelopeType>(envelope.type);
   const [editPriority, setEditPriority] = useState<EnvelopePriority>(envelope.priority);
+  const [editName, setEditName] = useState(envelope.name);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const suppressBlurRef = useRef(false);
@@ -100,6 +102,7 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
   const handleEditOpen = () => {
     setEnvelopeType(envelope.type);
     setEditPriority(envelope.priority);
+    setEditName(envelope.name);
     setIsEditOpen(true);
   };
 
@@ -108,16 +111,26 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
       id: envelope.id,
       envelopeType,
       priority: editPriority,
+      ...(editName.trim() && editName.trim() !== envelope.name && { name: editName.trim() }),
     });
     if (!useEnvelopeStore.getState().error) {
       setIsEditOpen(false);
     }
   };
 
-  const state = deriveEnvelopeState(envelope.allocatedCents, 0);
+  const transactions = useTransactionStore((s) => s.transactions);
+  const spentCents = Math.max(
+    0,
+    -transactions
+      .filter((t) => t.envelopeId === envelope.id)
+      .reduce((sum, t) => sum + t.amountCents, 0),
+  );
+  const remainingCents = envelope.allocatedCents - spentCents;
+
+  const state = deriveEnvelopeState(envelope.allocatedCents, spentCents);
 
   const progressPct = envelope.allocatedCents > 0
-    ? Math.min(100, (0 / envelope.allocatedCents) * 100)
+    ? Math.min(100, (spentCents / envelope.allocatedCents) * 100)
     : 0;
 
   return (
@@ -193,11 +206,14 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
           </span>
           <span className="type-label" style={{ color: 'var(--color-text-muted)' }}>Spent</span>
           <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-            {formatCurrency(0)}
+            {formatCurrency(spentCents)}
           </span>
           <span className="type-label" style={{ color: 'var(--color-text-muted)' }}>Remaining</span>
-          <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-            {formatCurrency(envelope.allocatedCents)}
+          <span
+            className="text-xs tabular-nums"
+            style={{ color: state === 'overspent' ? STATE_COLORS.overspent : 'var(--color-text-secondary)' }}
+          >
+            {formatCurrency(remainingCents)}
           </span>
         </div>
 
@@ -284,6 +300,18 @@ export default function EnvelopeCard({ envelope }: EnvelopeCardProps) {
           </DialogHeader>
 
           <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="edit-envelope-name" className="type-label" style={{ color: 'var(--color-text-muted)' }}>
+                Name
+              </label>
+              <Input
+                id="edit-envelope-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                data-testid="edit-envelope-name-input"
+              />
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <label className="type-label" style={{ color: 'var(--color-text-muted)' }}>
                 Type

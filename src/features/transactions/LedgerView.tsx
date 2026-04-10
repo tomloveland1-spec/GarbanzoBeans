@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTransactionStore } from '@/stores/useTransactionStore';
 import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { formatCurrency } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import TransactionRow from './TransactionRow';
@@ -19,6 +20,7 @@ export default function LedgerView() {
   const transactions = useTransactionStore(s => s.transactions);
   const importResult = useTransactionStore(s => s.importResult);
   const envelopes = useEnvelopeStore(s => s.envelopes);
+  const isReadOnly = useSettingsStore(s => s.isReadOnly);
   const [showAddForm, setShowAddForm] = useState(false);
 
   const envelopeMap = new Map(envelopes.map(e => [e.id, e.name]));
@@ -71,7 +73,7 @@ export default function LedgerView() {
           <Button
             variant="outline"
             onClick={() => setShowAddForm(true)}
-            disabled={showAddForm}
+            disabled={showAddForm || isReadOnly}
           >
             Add Transaction
           </Button>

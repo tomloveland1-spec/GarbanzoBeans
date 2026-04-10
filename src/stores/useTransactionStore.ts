@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AppError, Transaction, CreateTransactionInput, UpdateTransactionInput, ImportResult } from '@/lib/types';
 import { useMerchantRuleStore } from '@/stores/useMerchantRuleStore';
 import { useSavingsStore } from '@/stores/useSavingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 
 interface TransactionState {
   transactions: Transaction[];
@@ -47,6 +48,8 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   },
 
   createTransaction: async (input) => {
+    const { isReadOnly } = useSettingsStore.getState();
+    if (isReadOnly) return;
     const tempId = --_tempIdCounter;
     const tempTx: Transaction = {
       id: tempId,
@@ -72,6 +75,8 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   },
 
   importOFX: async (path) => {
+    const { isReadOnly } = useSettingsStore.getState();
+    if (isReadOnly) return;
     set({ isWriting: true, importError: null, importResult: null });
     try {
       const result = await invoke<ImportResult>('import_ofx', { path });
@@ -103,6 +108,8 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   clearImportResult: () => set({ importResult: null, importError: null }),
 
   updateTransaction: async (input) => {
+    const { isReadOnly } = useSettingsStore.getState();
+    if (isReadOnly) return;
     const prev = get().transactions;
     // Optimistic update: apply known field changes immediately so the UI responds at once.
     const optimistic = prev.map(t => {

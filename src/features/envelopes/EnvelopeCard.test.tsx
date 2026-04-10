@@ -2,7 +2,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EnvelopeCard from './EnvelopeCard';
-import type { Envelope } from '@/lib/types';
+import type { Envelope, Transaction } from '@/lib/types';
 import { STATE_COLORS, getEnvelopeStateExplanation } from '@/lib/envelopeState';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -35,8 +35,23 @@ vi.mock('@/stores/useSettingsStore', () => {
   return { useSettingsStore };
 });
 
+// Mock the transaction store
+vi.mock('@/stores/useTransactionStore', () => {
+  const store = { transactions: [] as Transaction[] };
+  const useTransactionStore = vi.fn((selector: (s: typeof store) => unknown) => selector(store));
+  return { useTransactionStore };
+});
+
 import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useTransactionStore } from '@/stores/useTransactionStore';
+
+function mockTransactions(transactions: Partial<Transaction>[] = []) {
+  vi.mocked(useTransactionStore).mockImplementation(
+    (selector: (s: { transactions: Transaction[] }) => unknown) =>
+      selector({ transactions: transactions as Transaction[] }),
+  );
+}
 
 const makeEnvelope = (overrides: Partial<Envelope> = {}): Envelope => ({
   id: 1,
@@ -61,6 +76,7 @@ const renderCard = (envelope: Envelope) =>
 describe('EnvelopeCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTransactions([]);
     // Reset store state
     const store = useEnvelopeStore.getState();
     vi.mocked(store.updateEnvelope).mockResolvedValue(undefined);
@@ -94,9 +110,9 @@ describe('EnvelopeCard', () => {
     expect(screen.getByText('Allocated')).toBeInTheDocument();
     expect(screen.getByText('Spent')).toBeInTheDocument();
     expect(screen.getByText('Remaining')).toBeInTheDocument();
-    // Spent and Remaining both show $0.00 (hardcoded until Epic 3)
+    // Spent shows $0.00 (no transactions mocked)
     expect(screen.getByText('$0.00')).toBeInTheDocument();
-    // Allocated and Remaining both show $50.00
+    // Allocated and Remaining both show $50.00 (no spending)
     expect(screen.getAllByText('$50.00').length).toBe(2);
   });
 
@@ -322,5 +338,77 @@ describe('EnvelopeCard', () => {
     const expectedText = getEnvelopeStateExplanation('Rolling', 'funded');
     const tooltip = await screen.findByRole('tooltip');
     expect(tooltip).toHaveTextContent(expectedText);
+  });
+
+  // Transaction-wired spent amount tests
+  it('Spent amount derives from matched transactions', () => {
+    mockTransactions([
+      { id: 10, envelopeId: 1, amountCents: -3000, isCleared: false },
+      { id: 11, envelopeId: 2, amountCents: -5000, isCleared: false },
+    ]);
+    const envelope = makeEnvelope({ id: 1, allocatedCents: 10000 });
+    renderCard(envelope);
+
+    expect(screen.getByText('Spent')).toBeInTheDocument();
+    expect(screen.getByText('$30.00')).toBeInTheDocument();
+  });
+
+  it('Remaining = allocated − spent', () => {
+    mockTransactions([
+      { id: 10, envelopeId: 1, amountCents: -4000, isCleared: false },
+    ]);
+    const envelope = makeEnvelope({ id: 1, allocatedCents: 10000 });
+    renderCard(envelope);
+
+    expect(screen.getAllByText('$100.00').length).toBe(1); // Allocated
+    expect(screen.getByText('$40.00')).toBeInTheDocument(); // Spent
+    expect(screen.getByText('$60.00')).toBeInTheDocument(); // Remaining
+  });
+
+  it('overspent state when spentCents > allocatedCents', () => {
+    mockTransactions([
+      { id: 10, envelopeId: 1, amountCents: -8000, isCleared: false },
+    ]);
+    const envelope = makeEnvelope({ id: 1, allocatedCents: 5000 });
+    const { container } = renderCard(envelope);
+
+    const card = container.firstChild as HTMLElement;
+    expect(card.style.borderLeft).toBe(`4px solid ${STATE_COLORS.overspent}`);
+    expect(screen.getByText('Over budget')).toBeInTheDocument();
+  });
+
+  // Edit dialog Name field tests
+  it('Edit dialog contains Name input pre-populated with envelope name', async () => {
+    const user = userEvent.setup();
+    const envelope = makeEnvelope({ name: 'Groceries' });
+    renderCard(envelope);
+
+    await user.click(screen.getByRole('button', { name: 'Envelope actions' }));
+    await user.click(await screen.findByText('Edit'));
+    await screen.findByRole('dialog');
+
+    const nameInput = screen.getByTestId('edit-envelope-name-input') as HTMLInputElement;
+    expect(nameInput.value).toBe('Groceries');
+  });
+
+  it('Edit save includes updated name in updateEnvelope payload', async () => {
+    const user = userEvent.setup();
+    const envelope = makeEnvelope({ name: 'Groceries' });
+    renderCard(envelope);
+
+    await user.click(screen.getByRole('button', { name: 'Envelope actions' }));
+    await user.click(await screen.findByText('Edit'));
+    await screen.findByRole('dialog');
+
+    const nameInput = screen.getByTestId('edit-envelope-name-input');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Supermarket');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(useEnvelopeStore.getState().updateEnvelope).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1, name: 'Supermarket' }),
+      );
+    });
   });
 });

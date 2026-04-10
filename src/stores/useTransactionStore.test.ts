@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { useTransactionStore } from './useTransactionStore';
+import { useSettingsStore } from './useSettingsStore';
 import type { Transaction, ImportResult } from '@/lib/types';
 
 // Mock Tauri invoke so tests don't require a running Tauri backend
@@ -33,6 +34,7 @@ const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
 describe('useTransactionStore', () => {
   beforeEach(() => {
     useTransactionStore.setState({ transactions: [], isWriting: false, error: null, importResult: null, importError: null });
+    useSettingsStore.setState({ isReadOnly: false });
     vi.clearAllMocks();
     mockLoadRules.mockClear();
   });
@@ -150,6 +152,19 @@ describe('useTransactionStore', () => {
       const { transactions, error } = useTransactionStore.getState();
       expect(transactions).toEqual([existing]);
       expect(error).toEqual({ code: 'DB_ERROR', message: 'fail' });
+    });
+
+    it('does nothing when isReadOnly = true', async () => {
+      useSettingsStore.setState({ isReadOnly: true });
+
+      await useTransactionStore.getState().createTransaction({
+        payee: 'Coffee Shop',
+        amountCents: 500,
+        date: '2026-04-06',
+      });
+
+      expect(mockInvoke).not.toHaveBeenCalled();
+      expect(useTransactionStore.getState().transactions).toHaveLength(0);
     });
 
     it('sets isCleared false and envelopeId null by default on optimistic entry', async () => {
@@ -302,6 +317,15 @@ describe('useTransactionStore', () => {
       expect(transactions.find(t => t.id === 10)).toBeDefined();
     });
 
+    it('does nothing when isReadOnly = true', async () => {
+      useSettingsStore.setState({ isReadOnly: true });
+
+      await useTransactionStore.getState().importOFX('/path/to/file.ofx');
+
+      expect(mockInvoke).not.toHaveBeenCalled();
+      expect(useTransactionStore.getState().importResult).toBeNull();
+    });
+
     describe('merchant rule refresh (AC1)', () => {
       it('calls loadRules after a successful import so match_count stays current', async () => {
         mockInvoke.mockResolvedValueOnce(makeImportResult());
@@ -347,6 +371,17 @@ describe('useTransactionStore', () => {
       const { transactions, error } = useTransactionStore.getState();
       expect(transactions).toEqual([original]);
       expect(error).toEqual({ code: 'TRANSACTION_NOT_FOUND', message: 'not found' });
+    });
+
+    it('does nothing when isReadOnly = true', async () => {
+      useSettingsStore.setState({ isReadOnly: true });
+      const existing = makeTx({ id: 5 });
+      useTransactionStore.setState({ transactions: [existing] });
+
+      await useTransactionStore.getState().updateTransaction({ id: 5, payee: 'Ghost' });
+
+      expect(mockInvoke).not.toHaveBeenCalled();
+      expect(useTransactionStore.getState().transactions).toEqual([existing]);
     });
 
     describe('queue removal on category assignment', () => {

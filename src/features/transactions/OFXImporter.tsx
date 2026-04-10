@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTransactionStore } from '@/stores/useTransactionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 
 type DropState = 'idle' | 'drag-over' | 'processing' | 'complete' | 'error';
 
@@ -18,6 +19,7 @@ export default function OFXImporter() {
   const processingRef = useRef(false);
   const { isWriting, importResult, importError, importOFX, clearImportResult } =
     useTransactionStore();
+  const isReadOnly = useSettingsStore(s => s.isReadOnly);
 
   // Sync store state → display state
   useEffect(() => {
@@ -52,6 +54,10 @@ export default function OFXImporter() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleImport = async (path: string) => {
+    // Use .getState() for the isReadOnly check — this function is captured in a stale closure
+    // by the drag-drop useEffect (empty deps), so a subscribed reactive value would be frozen
+    // at mount time. .getState() always reads fresh store state.
+    if (useSettingsStore.getState().isReadOnly) return;
     if (processingRef.current) return;
     processingRef.current = true;
     setDropState('processing');
@@ -113,8 +119,9 @@ export default function OFXImporter() {
               color: 'var(--color-accent)',
               border: '1px solid var(--color-accent)',
               background: 'transparent',
-              cursor: 'pointer',
+              cursor: isReadOnly ? 'default' : 'pointer',
             }}
+            disabled={isReadOnly}
             onClick={handleBrowse}
           >
             Browse…
