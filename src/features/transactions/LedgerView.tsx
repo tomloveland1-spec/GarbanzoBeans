@@ -300,15 +300,6 @@ export default function LedgerView() {
     () => transactions.reduce((s, t) => s + t.amountCents, 0),
     [transactions]
   );
-  const inflow = useMemo(
-    () => transactions.filter((t) => t.amountCents > 0).reduce((s, t) => s + t.amountCents, 0),
-    [transactions]
-  );
-  const outflow = useMemo(
-    () => transactions.filter((t) => t.amountCents < 0).reduce((s, t) => s + t.amountCents, 0),
-    [transactions]
-  );
-
   // ── Filtered + enriched rows ──
   const tableData = useMemo<TxRow[]>(() => {
     let result = transactions;
@@ -379,8 +370,6 @@ export default function LedgerView() {
       >
         <MetricCard label="Cleared" value={clearedBalance} testId="balance-cleared" />
         <MetricCard label="Working" value={workingBalance} testId="balance-working" />
-        <MetricCard label="Inflow" value={inflow} forcePositive={true} />
-        <MetricCard label="Outflow" value={outflow} forcePositive={false} />
       </div>
 
       {/* Toolbar */}
