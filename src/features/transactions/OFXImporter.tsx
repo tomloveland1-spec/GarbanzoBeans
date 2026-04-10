@@ -3,16 +3,10 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTransactionStore } from '@/stores/useTransactionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { Button } from '@/components/ui/button';
 
 type DropState = 'idle' | 'drag-over' | 'processing' | 'complete' | 'error';
 
-function formatImportDate(iso: string): string {
-  const parts = iso.split('-');
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monthIdx = parseInt(parts[1] ?? '1') - 1;
-  const day = parseInt(parts[2] ?? '1');
-  return `${months[monthIdx] ?? ''} ${day}`;
-}
 
 export default function OFXImporter() {
   const [dropState, setDropState] = useState<DropState>('idle');
@@ -86,100 +80,29 @@ export default function OFXImporter() {
     setDropState('idle');
   };
 
-  // Derive border/background styles from dropState
-  const containerStyle: React.CSSProperties = (() => {
-    switch (dropState) {
-      case 'drag-over':
-        return {
-          border: '2px solid var(--color-accent)',
-          background: 'rgba(192, 245, 0, 0.06)',
-        };
-      case 'error':
-        return { border: '2px solid var(--color-red)' };
-      case 'complete':
-        return { border: '2px dashed var(--color-border)' };
-      default:
-        return { border: '2px dashed var(--color-border)' };
-    }
-  })();
+  const isProcessing = dropState === 'processing' || isWriting;
 
   return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 p-8 rounded-lg m-4"
-      style={containerStyle}
-    >
-      {(dropState === 'idle' || dropState === 'drag-over') && (
-        <>
-          <p className="type-body" style={{ color: 'var(--color-text-muted)' }}>
-            Drag your OFX file here
-          </p>
-          <button
-            className="type-label px-3 py-1 rounded"
-            style={{
-              color: 'var(--color-accent)',
-              border: '1px solid var(--color-accent)',
-              background: 'transparent',
-              cursor: isReadOnly ? 'default' : 'pointer',
-            }}
-            disabled={isReadOnly}
-            onClick={handleBrowse}
-          >
-            Browse…
-          </button>
-        </>
-      )}
-
-      {(dropState === 'processing' || isWriting) && (
-        <>
-          <div
-            className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-            style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
-            aria-label="Loading"
-          />
-          <p className="type-body" style={{ color: 'var(--color-text-muted)' }}>
-            Parsing transactions…
-          </p>
-        </>
-      )}
-
-      {dropState === 'complete' && importResult && (
-        <>
-          <p className="type-body" style={{ color: 'var(--color-text-primary)' }}>
-            {importResult.count} transaction{importResult.count !== 1 ? 's' : ''} imported
-            {importResult.latestDate ? ` — ${formatImportDate(importResult.latestDate)}` : ''}
-          </p>
-          <button
-            className="type-label"
-            style={{
-              color: 'var(--color-accent)',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-            onClick={handleImportAnother}
-          >
-            Import another
-          </button>
-        </>
-      )}
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        disabled={isReadOnly || isProcessing}
+        onClick={handleBrowse}
+      >
+        {isProcessing ? 'Importing…' : 'Import OFX'}
+      </Button>
 
       {dropState === 'error' && (
         <>
-          <p className="type-body" style={{ color: 'var(--color-red)' }}>
+          <span className="type-caption" style={{ color: 'var(--color-red)' }}>
             {importError ?? 'Import failed'}
-          </p>
+          </span>
           <button
-            className="type-label px-3 py-1 rounded"
-            style={{
-              color: 'var(--color-red)',
-              border: '1px solid var(--color-red)',
-              background: 'transparent',
-              cursor: 'pointer',
-            }}
+            className="type-caption"
+            style={{ color: 'var(--color-red)', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
             onClick={handleRetry}
           >
-            Try again
+            Retry
           </button>
         </>
       )}

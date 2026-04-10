@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import TransactionRow from './TransactionRow';
 import AddTransactionForm from './AddTransactionForm';
 import UnknownMerchantQueue from './UnknownMerchantQueue';
+import OFXImporter from './OFXImporter';
 
 function formatImportDate(isoDate: string | null): string | null {
   if (!isoDate) return null;
@@ -70,13 +71,16 @@ export default function LedgerView() {
             </div>
           </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setShowAddForm(true)}
-            disabled={showAddForm || isReadOnly}
-          >
-            Add Transaction
-          </Button>
+          <div className="flex items-center gap-2">
+            <OFXImporter />
+            <Button
+              variant="outline"
+              onClick={() => setShowAddForm(true)}
+              disabled={showAddForm || isReadOnly}
+            >
+              Add Transaction
+            </Button>
+          </div>
         </div>
         {importResult !== null && (
           <div
@@ -123,7 +127,7 @@ export default function LedgerView() {
             className="flex items-center justify-center h-full type-body"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            No transactions yet — import an OFX file above to get started
+            No transactions yet — use Import OFX to get started
           </div>
         ) : (
           <table className="w-full border-collapse" aria-label="Transactions">
