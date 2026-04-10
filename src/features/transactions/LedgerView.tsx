@@ -145,15 +145,23 @@ export default function LedgerView() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Summary cards */}
+      <div
+        className="flex-shrink-0 px-6 py-3 flex gap-3"
+        style={{ borderBottom: '1px solid var(--color-border)' }}
+      >
+        <MetricCard label="Cleared" value={clearedBalance} testId="balance-cleared" />
+        <MetricCard label="Working" value={workingBalance} testId="balance-working" />
+        <MetricCard label="Inflow" value={inflow} forcePositive={true} />
+        <MetricCard label="Outflow" value={outflow} forcePositive={false} />
+      </div>
+
       {/* Page header */}
       <div
         className="flex-shrink-0 px-6 py-4 flex items-center justify-between"
         style={{ borderBottom: '1px solid var(--color-border)' }}
       >
         <div className="flex flex-col gap-0.5">
-          <h1 className="type-h1" style={{ color: 'var(--color-text-primary)' }}>
-            Ledger
-          </h1>
           <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
             {hasActiveFilters
               ? `${filteredTransactions.length} of ${transactions.length} transactions`
@@ -174,17 +182,6 @@ export default function LedgerView() {
             Add Transaction
           </Button>
         </div>
-      </div>
-
-      {/* Summary cards */}
-      <div
-        className="flex-shrink-0 px-6 py-3 flex gap-3"
-        style={{ borderBottom: '1px solid var(--color-border)' }}
-      >
-        <MetricCard label="Cleared" value={clearedBalance} testId="balance-cleared" />
-        <MetricCard label="Working" value={workingBalance} testId="balance-working" />
-        <MetricCard label="Inflow" value={inflow} forcePositive={true} />
-        <MetricCard label="Outflow" value={outflow} forcePositive={false} />
       </div>
 
       {/* Unknown merchant queue — shown after import when transactions need manual categorization */}
