@@ -78,4 +78,28 @@ describe('TurnTheMonthStepper', () => {
     fireEvent.click(screen.getByText('Back'));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+
+  it('Not yet button absent when onDismiss is undefined', () => {
+    renderStepper({ onDismiss: undefined });
+    expect(screen.queryByText('Not yet — finish later')).toBeNull();
+  });
+
+  it('Not yet button visible when onDismiss is provided', () => {
+    renderStepper({ onDismiss: vi.fn() });
+    expect(screen.getByText('Not yet — finish later')).toBeTruthy();
+  });
+
+  it('clicking Not yet calls onDismiss', () => {
+    const onDismiss = vi.fn();
+    renderStepper({ onDismiss });
+    fireEvent.click(screen.getByText('Not yet — finish later'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('Not yet button is NOT disabled when isWriting=true', () => {
+    const onDismiss = vi.fn();
+    renderStepper({ onDismiss, isWriting: true });
+    const btn = screen.getByText('Not yet — finish later') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
 });

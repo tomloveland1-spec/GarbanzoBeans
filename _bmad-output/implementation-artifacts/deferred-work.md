@@ -1,5 +1,15 @@
 # Deferred Work
 
+## Deferred from: code review of 7-6-onboarding-ux-uplift (2026-04-09)
+
+- **`handleFinalConfirm` non-atomicity** — `upsertSettings` marks `onboardingComplete: true` before `init_data_folder` succeeds; if the second call fails, settings are persisted with no data folder initialized. On next launch, `guardOnboarding` redirects to `/` with an uninitialised data folder. Pre-existing architecture issue; story constraints prohibit touching `handleFinalConfirm`. `src/features/settings/OnboardingPage.tsx`
+- **Stale `startMonth` from sessionStorage not validated against current month options** — A session saved 13+ months ago restores a `startMonth` that is no longer in the `pastTwelveMonths()` dropdown. The Select renders blank but `nextDisabled` is still false (value is non-empty), allowing a stale/invalid month to be submitted. Pre-existing; story constraints prohibit touching restore logic. `src/features/settings/OnboardingPage.tsx`
+- **sessionStorage state schema coupling in tests** — Step-3 tests write raw JSON with hardcoded field names and values to seed state. Schema changes will break these tests with cryptic "element not found" failures rather than schema mismatch errors. Minor pattern concern; acceptable tradeoff given the complexity of driving Radix Select in jsdom. `src/features/settings/OnboardingPage.test.tsx`
+
+## Deferred from: code review of 7-5-turn-the-month-graceful-escape (2026-04-09)
+
+- **"Not yet" during active `isWriting` races in-flight Tauri command** — Clicking dismiss while a DB write is in flight (e.g., advanceStep) navigates away before the command completes. The command resolves after navigation, updating `monthStatus` in the store. The sidebar prompt will then appear or disappear depending on the result. Intentional by spec (the button must never be disabled during isWriting); accepted tradeoff. `src/features/month/TurnTheMonthStepper.tsx`
+
 ## Deferred from: code review of 7-4-envelope-card-and-actions-completeness (2026-04-09)
 
 - **Spaces-only name save is a silent no-op** — If the user clears the Name field to whitespace and saves, `editName.trim()` is falsy so name is omitted; dialog closes silently with name unchanged. Matches spec "only if non-empty" constraint but gives no user feedback. Not in scope for 7.4.

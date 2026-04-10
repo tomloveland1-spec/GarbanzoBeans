@@ -54,6 +54,7 @@ vi.mock('@/stores/useEnvelopeStore', () => ({
 }));
 
 import { useMonthStore } from '@/stores/useMonthStore';
+import { useEnvelopeStore } from '@/stores/useEnvelopeStore';
 import TurnTheMonthWizard from './TurnTheMonthWizard';
 
 function setStoreState(overrides: Partial<{
@@ -198,6 +199,70 @@ describe('TurnTheMonthWizard', () => {
       fireEvent.click(screen.getByText('Continue'));
     });
     expect(confirmBillDates).toHaveBeenCalledTimes(1);
+  });
+
+  it('Not yet button is visible in the wizard', () => {
+    setStoreState({ monthStatus: 'closing:step-1' });
+    render(<TurnTheMonthWizard />);
+    expect(screen.getByText('Not yet — finish later')).toBeTruthy();
+  });
+
+  it('clicking Not yet navigates to / without calling any store action', async () => {
+    const advanceStep = vi.fn();
+    const closeMonth = vi.fn();
+    const confirmBillDates = vi.fn();
+    const confirmIncomeTiming = vi.fn();
+    setStoreState({ monthStatus: 'closing:step-1', advanceStep, closeMonth, confirmBillDates, confirmIncomeTiming });
+    render(<TurnTheMonthWizard />);
+    fireEvent.click(screen.getByText('Not yet — finish later'));
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/' });
+    expect(advanceStep).not.toHaveBeenCalled();
+    expect(closeMonth).not.toHaveBeenCalled();
+    expect(confirmBillDates).not.toHaveBeenCalled();
+    expect(confirmIncomeTiming).not.toHaveBeenCalled();
+  });
+
+  it('Not yet on step 4 with no pending allocations skips confirm and navigates', () => {
+    vi.spyOn(window, 'confirm');
+    setStoreState({ monthStatus: 'closing:step-4' });
+    render(<TurnTheMonthWizard />);
+    // envelopes mock is empty → pendingAllocations seeded as []
+    fireEvent.click(screen.getByText('Not yet — finish later'));
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/' });
+  });
+
+  it('Not yet on step 4 with pending allocations shows confirm', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(useEnvelopeStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      envelopes: [{ id: 1, allocatedCents: 5000 }],
+      isWriting: false,
+      error: null,
+      borrowError: null,
+    });
+    setStoreState({ monthStatus: 'closing:step-4' });
+    render(<TurnTheMonthWizard />);
+    // Wait for EnvelopeFillFlow useEffect to seed pendingAllocations
+    await waitFor(() => {});
+    fireEvent.click(screen.getByText('Not yet — finish later'));
+    expect(window.confirm).toHaveBeenCalledWith('Your allocation entries will be lost — continue?');
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/' });
+  });
+
+  it('Not yet on step 4: cancelling confirm blocks navigation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.mocked(useEnvelopeStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      envelopes: [{ id: 1, allocatedCents: 5000 }],
+      isWriting: false,
+      error: null,
+      borrowError: null,
+    });
+    setStoreState({ monthStatus: 'closing:step-4' });
+    render(<TurnTheMonthWizard />);
+    await waitFor(() => {});
+    fireEvent.click(screen.getByText('Not yet — finish later'));
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('Continue from viewStep < dbStep does not call advanceStep', async () => {

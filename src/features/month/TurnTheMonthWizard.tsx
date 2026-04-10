@@ -124,6 +124,16 @@ export default function TurnTheMonthWizard() {
     setViewStep((v) => Math.max(1, v - 1));
   };
 
+  const handleDismiss = () => {
+    if (viewStep === TOTAL_STEPS && pendingAllocations.length > 0) {
+      if (!window.confirm('Your allocation entries will be lost — continue?')) {
+        return;
+      }
+    }
+    navigate({ to: '/' });
+    // DO NOT call any store action — monthStatus stays at closing:step-N
+  };
+
   const isFinalStep = viewStep === TOTAL_STEPS;
 
   return (
@@ -135,6 +145,7 @@ export default function TurnTheMonthWizard() {
       onContinue={handleContinue}
       isFinalStep={isFinalStep}
       isWriting={isWriting}
+      onDismiss={handleDismiss}
     >
       <StepContent
         step={viewStep}

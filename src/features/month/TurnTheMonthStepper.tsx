@@ -9,6 +9,7 @@ interface TurnTheMonthStepperProps {
   isFinalStep: boolean;
   isWriting: boolean;
   children: React.ReactNode;
+  onDismiss?: () => void;
 }
 
 export default function TurnTheMonthStepper({
@@ -20,6 +21,7 @@ export default function TurnTheMonthStepper({
   isFinalStep,
   isWriting,
   children,
+  onDismiss,
 }: TurnTheMonthStepperProps) {
   // Block Escape key — must use explicit Back/Continue (UX-DR9)
   useEffect(() => {
@@ -105,6 +107,25 @@ export default function TurnTheMonthStepper({
             {isFinalStep ? 'Close Month' : 'Continue'}
           </button>
         </div>
+
+        {/* Dismiss link — always available, never disabled */}
+        {onDismiss && (
+          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <button
+              onClick={onDismiss}
+              className="type-label"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              Not yet — finish later
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

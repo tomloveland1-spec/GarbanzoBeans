@@ -3,6 +3,7 @@ import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
+import { useMonthStore } from '@/stores/useMonthStore';
 import { Button } from '@/components/ui/button';
 
 // Nav items for the sidebar. Routes will expand as stories are implemented.
@@ -15,7 +16,9 @@ const NAV_ITEMS = [
 
 function App() {
   const isReadOnly = useSettingsStore((s) => s.isReadOnly);
+  const monthStatus = useMonthStore((s) => s.monthStatus);
   const isOnboarding = useRouterState({ select: (s) => s.location.pathname === '/onboarding' });
+  const isOnTTMRoute = useRouterState({ select: (s) => s.location.pathname === '/turn-the-month' });
   const { pendingUpdate, isDismissed, isInstalling, installError, dismissUpdate, applyUpdate } = useUpdateStore();
 
   // Check for updates once on non-onboarding mount
@@ -82,6 +85,32 @@ function App() {
               </Link>
             ))}
           </nav>
+
+          {/* TTM resume prompt — shown during closing state on all non-onboarding, non-TTM screens */}
+          {monthStatus.startsWith('closing:') && !isOnTTMRoute && (
+            <div
+              data-testid="ttm-resume-prompt"
+              style={{
+                marginTop: 'auto',
+                paddingTop: '1rem',
+                borderTop: '1px solid var(--color-border)',
+              }}
+            >
+              <p
+                className="type-label"
+                style={{ color: 'var(--color-text-muted)', paddingLeft: '0.75rem', marginBottom: '0.25rem' }}
+              >
+                Turn the Month pending
+              </p>
+              <Link
+                to="/turn-the-month"
+                className="sidebar-interactive text-left px-3 py-2 rounded-md type-body transition-colors"
+                style={{ color: 'var(--color-sidebar-active)', display: 'block' }}
+              >
+                Continue →
+              </Link>
+            </div>
+          )}
         </aside>
 
         {/* Main content area */}

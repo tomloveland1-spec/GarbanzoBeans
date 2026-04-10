@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-04
-last_updated: 2026-04-09  # story 7-2 done; story 7-3 done; story 7-4 done
+last_updated: 2026-04-09  # story 7-2 done; story 7-3 done; story 7-4 done; story 7-5 done; story 7-6 done
 project: GarbanzoBeans
 project_key: NOKEY
 tracking_system: file-system
@@ -116,6 +116,6 @@ development_status:
   7-2-read-only-mode-enforcement: done
   7-3-settings-screen-completeness: done
   7-4-envelope-card-and-actions-completeness: done
-  7-5-turn-the-month-graceful-escape: backlog
-  7-6-onboarding-ux-uplift: backlog
+  7-5-turn-the-month-graceful-escape: done
+  7-6-onboarding-ux-uplift: done
   epic-7-retrospective: optional

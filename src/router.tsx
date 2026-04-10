@@ -41,14 +41,6 @@ function guardReadOnly() {
   }
 }
 
-// Guard: redirect to /turn-the-month if month is in closing state.
-// Called in beforeLoad of all routes except /turn-the-month itself (AC3).
-function guardTurnTheMonth() {
-  const { monthStatus } = useMonthStore.getState();
-  if (monthStatus.startsWith('closing:')) {
-    throw redirect({ to: '/turn-the-month' });
-  }
-}
 
 // Root route: wraps the entire app with the shell layout.
 // beforeLoad hydrates settings store before any child route guards fire.
@@ -83,7 +75,6 @@ const budgetRoute = createRoute({
   component: BudgetPage,
   beforeLoad: () => {
     guardOnboarding();
-    guardTurnTheMonth();
   },
 });
 
@@ -94,7 +85,6 @@ const ledgerRoute = createRoute({
   component: LedgerPage,
   beforeLoad: () => {
     guardOnboarding();
-    guardTurnTheMonth();
   },
 });
 
@@ -105,7 +95,6 @@ const merchantRulesRoute = createRoute({
   component: MerchantRulesScreen,
   beforeLoad: () => {
     guardOnboarding();
-    guardTurnTheMonth();
   },
 });
 
@@ -141,7 +130,6 @@ const allocationRoute = createRoute({
   component: AllocationPage,
   beforeLoad: () => {
     guardOnboarding();
-    guardTurnTheMonth();
     guardReadOnly();
   },
 });

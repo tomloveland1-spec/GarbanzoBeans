@@ -21,6 +21,91 @@ type Step = 0 | 1 | 2 | 3; // 0 = welcome, 1–3 = wizard steps
 
 const ONBOARDING_STORAGE_KEY = 'onboarding-state';
 
+// ── Illustrations ─────────────────────────────────────────────────────────────
+
+function WelcomeIllustration() {
+  return (
+    <div data-testid="step-illustration" className="flex flex-col items-center">
+      <svg viewBox="0 0 80 80" width="80" height="80" fill="none" aria-hidden="true">
+        <circle cx="40" cy="40" r="36" stroke="var(--color-sidebar-active)" strokeWidth="2" opacity="0.25" />
+        <circle cx="40" cy="40" r="24" fill="rgba(192,245,0,0.08)" />
+        <text
+          x="40" y="47"
+          textAnchor="middle"
+          fill="var(--color-sidebar-active)"
+          fontSize="18"
+          fontWeight="700"
+          fontFamily="Roboto, sans-serif"
+        >
+          GB
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function BudgetIllustration() {
+  return (
+    <div data-testid="step-illustration" className="flex flex-col items-center gap-2 text-center">
+      <svg viewBox="0 0 80 56" width="80" height="56" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="78" height="54" rx="4"
+          stroke="var(--color-sidebar-active)" strokeWidth="2"
+          fill="rgba(192,245,0,0.06)" />
+        <path d="M1 8 L40 30 L79 8"
+          stroke="var(--color-sidebar-active)" strokeWidth="2" />
+      </svg>
+      <p className="type-label" style={{ color: 'var(--color-text-muted)', maxWidth: '22rem' }}>
+        Your budget is personal — give it a name and pick the month it starts.
+      </p>
+    </div>
+  );
+}
+
+function DataFolderIllustration() {
+  return (
+    <div data-testid="step-illustration" className="flex flex-col items-center gap-2 text-center">
+      <svg viewBox="0 0 80 64" width="80" height="64" fill="none" aria-hidden="true">
+        {/* Folder body */}
+        <path
+          d="M4 20 L4 56 Q4 60 8 60 L72 60 Q76 60 76 56 L76 24 Q76 20 72 20 L44 20 L36 12 L8 12 Q4 12 4 16 Z"
+          stroke="var(--color-sidebar-active)" strokeWidth="2"
+          fill="rgba(192,245,0,0.06)"
+        />
+        {/* Lock shackle */}
+        <path d="M34 36 L34 31 Q34 26 40 26 Q46 26 46 31 L46 36"
+          stroke="var(--color-sidebar-active)" strokeWidth="1.5" fill="none" />
+        {/* Lock body */}
+        <rect x="30" y="35" width="20" height="14" rx="2"
+          stroke="var(--color-sidebar-active)" strokeWidth="1.5"
+          fill="rgba(192,245,0,0.1)" />
+      </svg>
+      <p className="type-label" style={{ color: 'var(--color-text-muted)', maxWidth: '22rem' }}>
+        Your data lives on your device — no cloud, no subscription, no sharing.
+      </p>
+    </div>
+  );
+}
+
+function SavingsIllustration() {
+  return (
+    <div data-testid="step-illustration" className="flex flex-col items-center gap-2 text-center">
+      <svg viewBox="0 0 100 58" width="100" height="58" fill="none" aria-hidden="true">
+        {/* Background track */}
+        <path d="M 10 55 A 40 40 0 0 1 90 55"
+          stroke="rgba(192,245,0,0.15)" strokeWidth="8" strokeLinecap="round" />
+        {/* Filled arc — ~65% */}
+        <path d="M 10 55 A 40 40 0 0 1 74 23"
+          stroke="var(--color-sidebar-active)" strokeWidth="8" strokeLinecap="round" />
+        {/* Progress dot */}
+        <circle cx="74" cy="23" r="4" fill="var(--color-sidebar-active)" />
+      </svg>
+      <p className="type-label" style={{ color: 'var(--color-text-muted)', maxWidth: '22rem' }}>
+        Set a savings goal — GarbanzoBeans tracks your runway month by month.
+      </p>
+    </div>
+  );
+}
+
 // ── Step Shell ────────────────────────────────────────────────────────────────
 
 interface StepShellProps {
@@ -43,30 +128,28 @@ function StepShell({
   children,
 }: StepShellProps) {
   return (
-    <div className="flex flex-col h-full">
-      {/* Step counter */}
-      <div className="flex justify-end px-8 pt-6">
-        <span
-          className="type-label"
-          style={{ color: 'var(--color-text-muted)' }}
-        >
-          Step {step} of 3
-        </span>
-      </div>
+    <div className="flex flex-col h-full items-center justify-center px-8">
+      <div className="w-full max-w-md flex flex-col gap-4">
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 max-w-md mx-auto w-full">
+        {/* Step counter — right-aligned within centered block */}
+        <div className="flex justify-end">
+          <span className="type-label" style={{ color: 'var(--color-text-muted)' }}>
+            Step {step} of 3
+          </span>
+        </div>
+
+        {/* Form content */}
         {children}
-      </div>
 
-      {/* Navigation */}
-      <div className="flex justify-between px-8 pb-8">
-        <Button variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-        <Button onClick={onNext} disabled={nextDisabled || isLoading}>
-          {isLoading ? 'Saving…' : nextLabel}
-        </Button>
+        {/* Nav — part of the centered block, not pinned at viewport bottom */}
+        <div className="flex justify-between pt-2">
+          <Button variant="ghost" onClick={onBack}>
+            Back
+          </Button>
+          <Button onClick={onNext} disabled={nextDisabled || isLoading}>
+            {isLoading ? 'Saving…' : nextLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -100,6 +183,7 @@ function BudgetNameStep({
       onNext={onNext}
       nextDisabled={!budgetName.trim() || !startMonth}
     >
+      <BudgetIllustration />
       <div className="w-full flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <h2
@@ -187,6 +271,7 @@ function DataFolderStep({
       onNext={onNext}
       nextDisabled={!dataFolderPath}
     >
+      <DataFolderIllustration />
       <div className="w-full flex flex-col gap-4">
         <h2
           className="type-h2"
@@ -253,13 +338,20 @@ function SavingsTargetStep({
       nextDisabled={isInvalid}
       isLoading={isLoading}
     >
+      <SavingsIllustration />
       <div className="w-full flex flex-col gap-4">
         <h2
           className="type-h2"
           style={{ color: 'var(--color-text-primary)' }}
         >
-          Savings target
+          Set your savings goal
         </h2>
+        <p
+          className="type-body"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          We'll track your progress each month — this is a goal, not a hard limit.
+        </p>
 
         <div className="flex flex-col gap-1.5">
           <label
@@ -267,7 +359,7 @@ function SavingsTargetStep({
             className="type-label"
             style={{ color: 'var(--color-text-muted)' }}
           >
-            What percentage of income do you want to save?
+            Target savings percentage
           </label>
           <div className="flex items-center gap-2">
             <Input
@@ -329,7 +421,7 @@ export default function OnboardingPage() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.step > 0) {
+        if (parsed.step > 0 && parsed.step <= 3) {
           setStep(parsed.step);
           setBudgetName(parsed.budgetName ?? '');
           setStartMonth(parsed.startMonth ?? '');
@@ -372,6 +464,7 @@ export default function OnboardingPage() {
   if (step === 0) {
     return (
       <div className="flex flex-col h-full items-center justify-center px-8 gap-8 max-w-md mx-auto w-full">
+        <WelcomeIllustration />
         <div className="flex flex-col gap-4 text-center">
           <h1
             className="type-h1 font-bold"

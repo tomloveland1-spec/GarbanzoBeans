@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { Settings, UpsertSettingsInput } from '@/lib/types';
 import { invoke } from '@tauri-apps/api/core';
@@ -22,11 +22,22 @@ vi.mock('@/App', () => ({
   default: () => null,
 }));
 
+const mockNavigate = vi.fn();
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 // ── Import after mocks ───────────────────────────────────────────────────────
 // Static imports are hoisted, but vi.mock calls run first, so @/router will
 // see the mocked versions of @/App and @tanstack/router-devtools.
 
 import { guardOnboarding } from '@/router';
+import { render, screen, fireEvent } from '@testing-library/react';
+import OnboardingPage from '@/features/settings/OnboardingPage';
 
 // ── Shared fixture ────────────────────────────────────────────────────────────
 
@@ -135,5 +146,67 @@ describe('useSettingsStore.upsertSettings', () => {
 
     expect(useSettingsStore.getState().isWriting).toBe(false);
     expect(useSettingsStore.getState().error).toMatchObject({ code: 'DB_ERROR' });
+  });
+});
+
+// ── OnboardingPage component rendering ───────────────────────────────────────
+
+describe('OnboardingPage component rendering', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    useSettingsStore.setState({ settings: null, isWriting: false, isReadOnly: false, error: null });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('welcome screen (step 0) shows step illustration', () => {
+    render(<OnboardingPage />);
+    expect(screen.getByTestId('step-illustration')).toBeInTheDocument();
+  });
+
+  it('welcome screen shows Get Started button', () => {
+    render(<OnboardingPage />);
+    expect(screen.getByTestId('get-started-button')).toBeInTheDocument();
+  });
+
+  it('step 1 shows illustration after clicking Get Started', () => {
+    render(<OnboardingPage />);
+    fireEvent.click(screen.getByTestId('get-started-button'));
+    expect(screen.getByTestId('step-illustration')).toBeInTheDocument();
+    expect(screen.getByTestId('budget-name-input')).toBeInTheDocument();
+  });
+
+  it('step 1 shows budget-name-input and start-month-select', () => {
+    render(<OnboardingPage />);
+    fireEvent.click(screen.getByTestId('get-started-button'));
+    expect(screen.getByTestId('budget-name-input')).toBeInTheDocument();
+    expect(screen.getByTestId('start-month-select')).toBeInTheDocument();
+  });
+
+  it('step 3 renders aspirational savings heading', () => {
+    sessionStorage.setItem('onboarding-state', JSON.stringify({
+      step: 3, budgetName: 'Test', startMonth: '2026-04', dataFolderPath: '/tmp', savingsTarget: 10,
+    }));
+    render(<OnboardingPage />);
+    expect(screen.getByText(/Set your savings goal/i)).toBeInTheDocument();
+  });
+
+  it('step 3 subtext is not commitment-framed', () => {
+    sessionStorage.setItem('onboarding-state', JSON.stringify({
+      step: 3, budgetName: 'Test', startMonth: '2026-04', dataFolderPath: '/tmp', savingsTarget: 10,
+    }));
+    render(<OnboardingPage />);
+    expect(screen.getByText(/goal, not a hard limit/i)).toBeInTheDocument();
+  });
+
+  it('step 3 shows savings illustration', () => {
+    sessionStorage.setItem('onboarding-state', JSON.stringify({
+      step: 3, budgetName: 'Test', startMonth: '2026-04', dataFolderPath: '/tmp', savingsTarget: 10,
+    }));
+    render(<OnboardingPage />);
+    expect(screen.getByTestId('step-illustration')).toBeInTheDocument();
   });
 });
