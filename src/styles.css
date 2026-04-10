@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 /* ─── Roboto loaded via <link> in index.html ─── */
 
 /* ─── Dark Forest Design Tokens ─── */
@@ -55,9 +57,6 @@
   --input: #26282C;
   --ring: #C0F500;
   --radius: 0.5rem;
-  --sidebar: #0F2218;
-  --sidebar-foreground: rgba(255, 255, 255, 0.65);
-  --sidebar-border: #26282C;
 }
 
 /* ─── Base Reset & Global Styles ─── */
@@ -149,4 +148,26 @@
       background-color: var(--color-sidebar-hover);
     }
   }
+}
+
+:root {
+  --sidebar: #0F2218;
+  --sidebar-foreground: rgba(255, 255, 255, 0.65);
+  --sidebar-primary: #C0F500;
+  --sidebar-primary-foreground: #111214;
+  --sidebar-accent: rgba(255, 255, 255, 0.07);
+  --sidebar-accent-foreground: #C0F500;
+  --sidebar-border: #26282C;
+  --sidebar-ring: #C0F500;
+}
+
+@theme inline {
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }

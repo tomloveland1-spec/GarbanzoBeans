@@ -1,24 +1,14 @@
-import { useEffect } from 'react';
-import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import React, { useEffect } from 'react';
+import { Outlet, useRouterState } from '@tanstack/react-router';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
-import { useMonthStore } from '@/stores/useMonthStore';
 import { Button } from '@/components/ui/button';
-
-// Nav items for the sidebar. Routes will expand as stories are implemented.
-const NAV_ITEMS = [
-  { label: 'Budget', to: '/' as const, exact: true },
-  { label: 'Ledger', to: '/ledger' as const },
-  { label: 'Rules', to: '/merchant-rules' as const },
-  { label: 'Settings', to: '/settings' as const },
-] as const;
+import { AppSidebar } from '@/components/AppSidebar';
 
 function App() {
   const isReadOnly = useSettingsStore((s) => s.isReadOnly);
-  const monthStatus = useMonthStore((s) => s.monthStatus);
   const isOnboarding = useRouterState({ select: (s) => s.location.pathname === '/onboarding' });
-  const isOnTTMRoute = useRouterState({ select: (s) => s.location.pathname === '/turn-the-month' });
   const { pendingUpdate, isDismissed, isInstalling, installError, dismissUpdate, applyUpdate } = useUpdateStore();
 
   // Check for updates once on non-onboarding mount
@@ -30,157 +20,96 @@ function App() {
 
   if (isOnboarding) {
     return (
-      <TooltipProvider delayDuration={300}>
-        <div
-          className="flex h-screen w-full"
-          style={{ backgroundColor: 'var(--color-bg-app)' }}
-        >
-          <div className="flex-1 h-full w-full">
-            <Outlet />
-          </div>
+      <div
+        className="flex h-screen w-full"
+        style={{ backgroundColor: 'var(--color-bg-app)' }}
+      >
+        <div className="flex-1 h-full w-full">
+          <Outlet />
         </div>
-      </TooltipProvider>
+      </div>
     );
   }
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <div
-        className="flex h-screen w-full overflow-hidden"
+    <div
+      className="h-screen w-full overflow-hidden"
+      style={{ backgroundColor: 'var(--color-bg-app)' }}
+    >
+    <SidebarProvider style={{ height: '100%' } as React.CSSProperties}>
+      <AppSidebar />
+
+      {/* Main content area */}
+      <main
+        data-testid="main-content"
+        className="flex-1 flex flex-col overflow-hidden min-w-0"
         style={{ backgroundColor: 'var(--color-bg-app)' }}
       >
-        {/* Sidebar — Forest Deep */}
-        <aside
-          data-testid="sidebar"
-          className="w-[160px] shrink-0 flex flex-col py-6 px-4 gap-2"
-          style={{ backgroundColor: 'var(--color-bg-sidebar)' }}
-        >
-          {/* Logo / App name */}
-          <div className="mb-6 px-2">
+        {/* Top toolbar — sidebar toggle lives here, consistent with Linear/Notion pattern */}
+        <div className="shrink-0 flex items-center h-10 px-3 border-b border-[var(--color-border)]">
+          <SidebarTrigger />
+        </div>
+
+        {/* Read-only banner — shown when sentinel lock detected (Story 1.7 wires detection) */}
+        {isReadOnly && (
+          <div
+            data-testid="read-only-banner"
+            className="shrink-0 px-4 py-2 type-label text-center"
+            style={{
+              backgroundColor: 'var(--color-amber)',
+              color: 'var(--color-bg-app)',
+            }}
+          >
+            Read-Only — another instance is open
+          </div>
+        )}
+
+        {/* Update prompt — shown when update is available and not dismissed */}
+        {pendingUpdate && !isDismissed && (
+          <div
+            data-testid="update-prompt"
+            className="shrink-0 flex items-center justify-between px-4 py-2"
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              borderBottom: '1px solid var(--color-border)',
+            }}
+          >
             <span
-              className="type-h1 font-bold tracking-tight"
-              style={{ color: 'var(--color-text-primary)' }}
+              className="type-label"
+              style={{ color: installError ? 'var(--color-amber)' : 'var(--color-text-primary)' }}
+              data-testid={installError ? 'update-error' : undefined}
             >
-              GarbanzoBeans
+              {installError ?? `v${pendingUpdate.version} available`}
             </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={applyUpdate}
+                disabled={isInstalling}
+                data-testid="update-confirm-button"
+              >
+                {isInstalling ? 'Installing…' : 'Update Now'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={dismissUpdate}
+                disabled={isInstalling}
+                data-testid="update-dismiss-button"
+              >
+                Later
+              </Button>
+            </div>
           </div>
+        )}
 
-          {/* Nav links */}
-          <nav className="flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                activeOptions={'exact' in item && item.exact ? { exact: true } : undefined}
-                className="sidebar-interactive text-left px-3 py-2 rounded-md type-body transition-colors"
-                style={{ color: 'var(--color-sidebar-text)' }}
-                activeProps={{
-                  style: {
-                    color: 'var(--color-text-primary)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-                    fontWeight: 500,
-                    boxShadow: 'inset 2px 0 0 var(--color-sidebar-active)',
-                  },
-                }}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-
-          {/* TTM resume prompt — shown during closing state on all non-onboarding, non-TTM screens */}
-          {monthStatus.startsWith('closing:') && !isOnTTMRoute && (
-            <div
-              data-testid="ttm-resume-prompt"
-              style={{
-                marginTop: 'auto',
-                paddingTop: '1rem',
-                borderTop: '1px solid var(--color-border)',
-              }}
-            >
-              <p
-                className="type-label"
-                style={{ color: 'var(--color-text-muted)', paddingLeft: '0.75rem', marginBottom: '0.25rem' }}
-              >
-                Turn the Month pending
-              </p>
-              <Link
-                to="/turn-the-month"
-                className="sidebar-interactive text-left px-3 py-2 rounded-md type-body transition-colors"
-                style={{ color: 'var(--color-sidebar-active)', display: 'block' }}
-              >
-                Continue →
-              </Link>
-            </div>
-          )}
-        </aside>
-
-        {/* Main content area */}
-        <main
-          data-testid="main-content"
-          className="flex-1 flex flex-col overflow-hidden"
-          style={{ backgroundColor: 'var(--color-bg-app)' }}
-        >
-          {/* Read-only banner — shown when sentinel lock detected (Story 1.7 wires detection) */}
-          {isReadOnly && (
-            <div
-              data-testid="read-only-banner"
-              className="shrink-0 px-4 py-2 type-label text-center"
-              style={{
-                backgroundColor: 'var(--color-amber)',
-                color: 'var(--color-bg-app)',
-              }}
-            >
-              Read-Only — another instance is open
-            </div>
-          )}
-
-          {/* Update prompt — shown when update is available and not dismissed */}
-          {pendingUpdate && !isDismissed && (
-            <div
-              data-testid="update-prompt"
-              className="shrink-0 flex items-center justify-between px-4 py-2"
-              style={{
-                backgroundColor: 'var(--color-bg-surface)',
-                borderBottom: '1px solid var(--color-border)',
-              }}
-            >
-              <span
-                className="type-label"
-                style={{ color: installError ? 'var(--color-amber)' : 'var(--color-text-primary)' }}
-                data-testid={installError ? 'update-error' : undefined}
-              >
-                {installError ?? `v${pendingUpdate.version} available`}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={applyUpdate}
-                  disabled={isInstalling}
-                  data-testid="update-confirm-button"
-                >
-                  {isInstalling ? 'Installing…' : 'Update Now'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={dismissUpdate}
-                  disabled={isInstalling}
-                  data-testid="update-dismiss-button"
-                >
-                  Later
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Routed content */}
-          <div className="flex-1 overflow-auto">
-            <Outlet />
-          </div>
-        </main>
-      </div>
-    </TooltipProvider>
+        {/* Routed content */}
+        <div className="flex-1 overflow-auto">
+          <Outlet />
+        </div>
+      </main>
+    </SidebarProvider>
+    </div>
   );
 }
 
