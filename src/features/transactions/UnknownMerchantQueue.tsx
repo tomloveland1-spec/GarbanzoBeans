@@ -109,18 +109,18 @@ export default function UnknownMerchantQueue({
 
   return (
     <div
-      className="flex-shrink-0 px-4 py-3 border-b"
-      style={{ borderColor: 'var(--color-border)' }}
+      className="flex-shrink-0 border-b"
+      style={{ borderColor: 'var(--color-border)', maxHeight: '40%', display: 'flex', flexDirection: 'column' }}
       data-testid="unknown-merchant-queue"
     >
       <div
-        className="type-label mb-2"
+        className="type-label px-4 pt-3 pb-2 flex-shrink-0"
         style={{ color: 'var(--color-text-secondary)' }}
         data-testid="queue-header"
       >
         {queueItems.length} transaction{queueItems.length !== 1 ? 's' : ''} need a category
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 overflow-y-auto px-4 pb-3">
         {queueItems.map(tx => {
           const isRuleBuilderMode = ruleBuilderItemId === tx.id;
           const pendingEnvelope = pendingEnvelopeId !== null

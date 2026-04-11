@@ -24,7 +24,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import AddTransactionForm from './AddTransactionForm';
-import UnknownMerchantQueue from './UnknownMerchantQueue';
 import OFXImporter from './OFXImporter';
 import TransactionDetailPanel from './TransactionDetailPanel';
 
@@ -100,6 +99,14 @@ const columns: ColumnDef<TxRow>[] = [
         <div className="truncate font-medium" style={{ color: 'var(--color-text-primary)' }}>
           {row.getValue('payee')}
         </div>
+        {row.original.memo && (
+          <span
+            className="type-caption block truncate"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            {row.original.memo}
+          </span>
+        )}
         {row.original.matchedRuleLabel && (
           <span
             className="type-caption block"
@@ -133,23 +140,6 @@ const columns: ColumnDef<TxRow>[] = [
         {row.getValue('categoryName')}
       </span>
     ),
-    enableSorting: false,
-  },
-  {
-    accessorKey: 'memo',
-    header: 'Memo',
-    cell: ({ row }) => {
-      const memo: string | null = row.getValue('memo');
-      return (
-        <span
-          className="block truncate"
-          style={{ color: 'var(--color-text-secondary)', maxWidth: '200px' }}
-          title={memo ?? undefined}
-        >
-          {memo ?? ''}
-        </span>
-      );
-    },
     enableSorting: false,
   },
   {
@@ -340,13 +330,6 @@ export default function LedgerView() {
   const selectedTransaction =
     selectedId !== null ? (transactions.find((t) => t.id === selectedId) ?? null) : null;
 
-  const queueIds = [
-    ...new Set([
-      ...(importResult?.uncategorizedIds ?? []),
-      ...(importResult?.conflictedIds ?? []),
-    ]),
-  ];
-
   const table = useReactTable({
     data: tableData,
     columns,
@@ -416,12 +399,11 @@ export default function LedgerView() {
             />
             Uncategorized only
           </label>
-          <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
-            {hasActiveFilters
-              ? `${tableData.length} of ${transactions.length} transactions`
-              : `${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}`}
-            {importDateLabel ? ` · Imported ${importDateLabel}` : ''}
-          </span>
+          {importDateLabel && (
+            <span className="type-caption" style={{ color: 'var(--color-text-secondary)' }}>
+              Imported {importDateLabel}
+            </span>
+          )}
         </div>
 
         {/* Right: actions */}
@@ -439,16 +421,6 @@ export default function LedgerView() {
           </Button>
         </div>
       </div>
-
-      {/* Unknown merchant queue */}
-      {queueIds.length > 0 && (
-        <UnknownMerchantQueue
-          queueIds={queueIds}
-          transactions={transactions}
-          envelopes={envelopes}
-          conflictedIds={importResult?.conflictedIds ?? []}
-        />
-      )}
 
       {/* Add Transaction inline form */}
       {showAddForm && (

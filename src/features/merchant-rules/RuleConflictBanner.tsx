@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useMerchantRuleStore } from '@/stores/useMerchantRuleStore';
 
 export default function RuleConflictBanner() {
-  const conflicts = useMerchantRuleStore(s => s.conflictingRules());
+  const conflictingRules = useMerchantRuleStore(s => s.conflictingRules);
+  const conflicts = useMemo(() => conflictingRules(), [conflictingRules]);
 
   if (conflicts.length === 0) return null;
 

@@ -1729,7 +1729,7 @@ fn ofx_amount_to_cents(amount: &str) -> Option<i64> {
     Some(if negative { -result } else { result })
 }
 
-fn parse_ofx_sgml(content: &str) -> Result<Vec<(String, i64, String)>, AppError> {
+fn parse_ofx_sgml(content: &str) -> Result<Vec<(String, i64, String, Option<String>)>, AppError> {
     let upper = content.to_uppercase();
     let mut results = Vec::new();
     let mut search_from = 0usize;
@@ -1753,17 +1753,21 @@ fn parse_ofx_sgml(content: &str) -> Result<Vec<(String, i64, String)>, AppError>
             (&content_rest[..block_end], &upper_rest[..block_end])
         };
 
-        let payee = ofx_field(block, upper_block, "NAME")
-            .or_else(|| ofx_field(block, upper_block, "MEMO"))
+        let name = ofx_field(block, upper_block, "NAME");
+        let memo_field = ofx_field(block, upper_block, "MEMO").map(str::to_string);
+        let payee = name
+            .or_else(|| memo_field.as_deref())
             .unwrap_or("")
             .to_string();
+        // Store MEMO as memo only when NAME is also present (otherwise it was used as payee).
+        let memo = if name.is_some() { memo_field } else { None };
         let date = ofx_field(block, upper_block, "DTPOSTED")
             .and_then(ofx_date_to_iso);
         let cents = ofx_field(block, upper_block, "TRNAMT")
             .and_then(ofx_amount_to_cents);
 
         if let (Some(d), Some(c)) = (date, cents) {
-            results.push((payee, c, d));
+            results.push((payee, c, d, memo));
         }
 
         if block_end == usize::MAX {
@@ -1828,7 +1832,7 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
             message: "No valid transactions found in this file.".to_string(),
         });
     }
-    let latest_date = parsed.iter().map(|(_, _, d)| d.as_str()).max().map(String::from);
+    let latest_date = parsed.iter().map(|(_, _, d, _)| d.as_str()).max().map(String::from);
     let batch_id = generate_batch_id();
 
     // Load merchant rules once — do not query inside the per-transaction loop.
@@ -1837,7 +1841,7 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
     // Load existing uncleared entries before starting the transaction.
     let uncleared: Vec<Transaction> = {
         let mut stmt = conn.prepare(
-            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at
+            "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo
              FROM transactions WHERE is_cleared=0",
         )?;
         let rows = stmt.query_map([], map_transaction_row)?.collect::<Result<Vec<_>, _>>()?;
@@ -1853,7 +1857,7 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
     let mut uncategorized_ids: Vec<i64> = Vec::new();
     let mut conflicted_ids: Vec<i64> = Vec::new();
 
-    for (payee, amount_cents, date) in &parsed {
+    for (payee, amount_cents, date, memo) in &parsed {
         // Story 3.4: try to auto-match an existing uncleared entry first.
         let best_candidate = uncleared
             .iter()
@@ -1875,7 +1879,7 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
                     rusqlite::params![batch_id, candidate.id],
                 )?;
                 let updated = tx.query_row(
-                    "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at
+                    "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo
                      FROM transactions WHERE id=?1",
                     rusqlite::params![candidate.id],
                     map_transaction_row,
@@ -1900,9 +1904,9 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
                 };
 
                 tx.execute(
-                    "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared, import_batch_id)
-                     VALUES (?1, ?2, ?3, ?4, 1, ?5)",
-                    rusqlite::params![payee, amount_cents, date, envelope_id, batch_id],
+                    "INSERT INTO transactions (payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, memo)
+                     VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
+                    rusqlite::params![payee, amount_cents, date, envelope_id, batch_id, memo],
                 )?;
                 let id = tx.last_insert_rowid();
 
@@ -1924,7 +1928,7 @@ fn import_ofx_inner(conn: &rusqlite::Connection, path: &str) -> Result<ImportRes
                 }
 
                 let row = tx.query_row(
-                    "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at
+                    "SELECT id, payee, amount_cents, date, envelope_id, is_cleared, import_batch_id, created_at, memo
                      FROM transactions WHERE id = ?1",
                     rusqlite::params![id],
                     map_transaction_row,
