@@ -16,6 +16,13 @@ import { formatCurrency } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -25,7 +32,6 @@ import {
 } from '@/components/ui/table';
 import AddTransactionForm from './AddTransactionForm';
 import OFXImporter from './OFXImporter';
-import TransactionDetailPanel from './TransactionDetailPanel';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -59,150 +65,25 @@ type TxRow = Transaction & {
   matchedRuleLabel?: string;
 };
 
-// ─── Column definitions ──────────────────────────────────────────────────────
+interface DraftFields {
+  payee: string;
+  amountStr: string;
+  date: string;
+  category: string; // envelope id as string, or 'none'
+  memo: string;
+}
 
-const columns: ColumnDef<TxRow>[] = [
-  {
-    accessorKey: 'date',
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-2"
-        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-      >
-        Date
-        <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-      </Button>
-    ),
-    cell: ({ row }) => (
-      <span style={{ color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-        {formatTxDate(row.getValue('date'))}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'payee',
-    header: ({ column }) => (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-ml-2"
-        onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-      >
-        Payee
-        <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-      </Button>
-    ),
-    cell: ({ row }) => (
-      <div className="min-w-0">
-        <div className="truncate font-medium" style={{ color: 'var(--color-text-primary)' }}>
-          {row.getValue('payee')}
-        </div>
-        {row.original.memo && (
-          <span
-            className="type-caption block truncate"
-            style={{ color: 'var(--color-text-secondary)' }}
-          >
-            {row.original.memo}
-          </span>
-        )}
-        {row.original.matchedRuleLabel && (
-          <span
-            className="type-caption block"
-            style={{ color: 'var(--color-text-secondary)' }}
-            data-testid="matched-rule-label"
-          >
-            {row.original.matchedRuleLabel}
-          </span>
-        )}
-      </div>
-    ),
-  },
-  {
-    accessorKey: 'categoryName',
-    header: 'Category',
-    cell: ({ row }) => (
-      <span
-        className="type-caption"
-        style={{
-          display: 'inline-block',
-          padding: '1px 7px',
-          borderRadius: '10px',
-          backgroundColor: row.original.isUncategorized
-            ? 'rgba(245, 168, 0, 0.12)'
-            : 'rgba(255, 255, 255, 0.05)',
-          color: row.original.isUncategorized
-            ? 'var(--color-amber)'
-            : 'var(--color-text-secondary)',
-        }}
-      >
-        {row.getValue('categoryName')}
-      </span>
-    ),
-    enableSorting: false,
-  },
-  {
-    accessorKey: 'isCleared',
-    header: 'Cleared',
-    cell: ({ row }) =>
-      row.getValue('isCleared') ? (
-        <span
-          className="flex justify-center"
-          style={{ color: 'var(--color-text-secondary)', fontSize: '13px', opacity: 0.7 }}
-          aria-label="Cleared"
-        >
-          ✓
-        </span>
-      ) : (
-        <span
-          className="flex justify-center"
-          style={{ color: 'var(--color-text-secondary)', fontSize: '11px', opacity: 0.3 }}
-          aria-label="Pending"
-        >
-          ○
-        </span>
-      ),
-    enableSorting: false,
-  },
-  {
-    accessorKey: 'amountCents',
-    header: ({ column }) => (
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-mr-2"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-        >
-          Amount
-          <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-        </Button>
-      </div>
-    ),
-    cell: ({ row }) => {
-      const amount = row.getValue('amountCents') as number;
-      const color = amount >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
-      return (
-        <div
-          className="text-right"
-          style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color }}
-        >
-          {formatCurrency(amount)}
-          {row.original.isSavingsTx && (
-            <span
-              className="type-caption block"
-              style={{ color: 'var(--color-text-secondary)' }}
-              data-testid="savings-direction"
-            >
-              {amount < 0 ? 'Savings Deposit' : 'Savings Withdrawal'}
-            </span>
-          )}
-        </div>
-      );
-    },
-  },
-];
+// ─── Period filter ────────────────────────────────────────────────────────────
+
+const PERIOD_OPTIONS = [
+  { value: '30', label: 'Last 30 days' },
+  { value: '45', label: 'Last 45 days' },
+  { value: '90', label: 'Last 90 days' },
+  { value: '365', label: 'Last year' },
+  { value: 'all', label: 'All time' },
+] as const;
+
+type PeriodValue = (typeof PERIOD_OPTIONS)[number]['value'];
 
 // ─── MetricCard ──────────────────────────────────────────────────────────────
 
@@ -244,18 +125,6 @@ function MetricCard({ label, value, forcePositive, testId }: MetricCardProps) {
   );
 }
 
-// ─── Period filter ────────────────────────────────────────────────────────────
-
-const PERIOD_OPTIONS = [
-  { value: '30', label: 'Last 30 days' },
-  { value: '45', label: 'Last 45 days' },
-  { value: '90', label: 'Last 90 days' },
-  { value: '365', label: 'Last year' },
-  { value: 'all', label: 'All time' },
-] as const;
-
-type PeriodValue = (typeof PERIOD_OPTIONS)[number]['value'];
-
 // ─── LedgerView ──────────────────────────────────────────────────────────────
 
 export default function LedgerView() {
@@ -265,11 +134,16 @@ export default function LedgerView() {
   const isReadOnly = useSettingsStore((s) => s.isReadOnly);
 
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
   const [period, setPeriod] = useState<PeriodValue>('45');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'date', desc: true }]);
+
+  // ── Inline editing state ──
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<DraftFields | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const envelopeMap = useMemo(
     () => new Map(envelopes.map((e) => [e.id, e.name])),
@@ -290,6 +164,7 @@ export default function LedgerView() {
     () => transactions.reduce((s, t) => s + t.amountCents, 0),
     [transactions]
   );
+
   // ── Filtered + enriched rows ──
   const tableData = useMemo<TxRow[]>(() => {
     let result = transactions;
@@ -324,11 +199,333 @@ export default function LedgerView() {
     });
   }, [transactions, period, search, uncategorizedOnly, envelopeMap, savingsEnvelopeIds, importResult]);
 
-  const hasActiveFilters = search.trim() !== '' || uncategorizedOnly || period !== 'all';
   const importDateLabel = importResult ? formatImportDate(importResult.latestDate) : null;
 
-  const selectedTransaction =
-    selectedId !== null ? (transactions.find((t) => t.id === selectedId) ?? null) : null;
+  // ── Edit handlers ──
+
+  function handleRowClick(row: TxRow) {
+    if (isReadOnly) return;
+    if (editingRowId === row.id) return;
+    setEditingRowId(row.id);
+    setDraft({
+      payee: row.payee,
+      amountStr: (row.amountCents / 100).toFixed(2),
+      date: row.date,
+      category: row.envelopeId !== null ? String(row.envelopeId) : 'none',
+      memo: row.memo ?? '',
+    });
+    setDraftError(null);
+  }
+
+  function handleCancel() {
+    setEditingRowId(null);
+    setDraft(null);
+    setDraftError(null);
+  }
+
+  async function handleSave() {
+    if (!draft || editingRowId === null) return;
+    const amountCents = Math.round(parseFloat(draft.amountStr) * 100);
+    if (isNaN(amountCents)) {
+      setDraftError('Enter a valid amount (e.g. -12.34)');
+      return;
+    }
+    setIsSaving(true);
+    setDraftError(null);
+
+    const clearEnvelopeId = draft.category === 'none';
+    const envelopeId = draft.category !== 'none' ? Number(draft.category) : undefined;
+
+    await useTransactionStore.getState().updateTransaction({
+      id: editingRowId,
+      payee: draft.payee,
+      amountCents,
+      date: draft.date,
+      ...(clearEnvelopeId
+        ? { clearEnvelopeId: true }
+        : envelopeId !== undefined
+          ? { envelopeId }
+          : {}),
+      memo: draft.memo.trim() || null,
+    });
+
+    const storeState = useTransactionStore.getState();
+    if (storeState.error) {
+      setDraftError(storeState.error.message);
+      setIsSaving(false);
+      return;
+    }
+
+    if (envelopeId !== undefined || clearEnvelopeId) {
+      await useEnvelopeStore.getState().loadEnvelopes().catch(() => {});
+    }
+
+    setEditingRowId(null);
+    setDraft(null);
+    setIsSaving(false);
+  }
+
+  async function handleClearedToggle(
+    id: number,
+    current: boolean,
+    e: React.MouseEvent,
+  ) {
+    e.stopPropagation();
+    if (isReadOnly) return;
+    await useTransactionStore.getState().updateTransaction({ id, isCleared: !current });
+  }
+
+  // ── Column definitions ────────────────────────────────────────────────────
+  // Defined inside the component so cell renderers close over edit state.
+
+  const columns: ColumnDef<TxRow>[] = [
+    {
+      accessorKey: 'date',
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
+          Date
+          <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        if (editingRowId === row.original.id && draft) {
+          return (
+            <Input
+              type="date"
+              value={draft.date}
+              onChange={(e) => setDraft((d) => d && { ...d, date: e.target.value })}
+              onClick={(e) => e.stopPropagation()}
+              style={{ minWidth: '130px' }}
+            />
+          );
+        }
+        return (
+          <span style={{ color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+            {formatTxDate(row.getValue('date'))}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: 'payee',
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+        >
+          Payee
+          <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        if (editingRowId === row.original.id && draft) {
+          return (
+            <div
+              className="flex flex-col gap-1 min-w-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Input
+                value={draft.payee}
+                onChange={(e) => setDraft((d) => d && { ...d, payee: e.target.value })}
+                placeholder="Payee"
+              />
+              <textarea
+                value={draft.memo}
+                onChange={(e) => setDraft((d) => d && { ...d, memo: e.target.value })}
+                placeholder="Memo (optional)"
+                rows={2}
+                style={{
+                  width: '100%',
+                  resize: 'vertical',
+                  background: 'var(--color-bg-app)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '6px',
+                  color: 'var(--color-text-primary)',
+                  padding: '4px 8px',
+                  font: 'inherit',
+                  fontSize: '13px',
+                  lineHeight: '1.5',
+                }}
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="min-w-0">
+            <div className="truncate font-medium" style={{ color: 'var(--color-text-primary)' }}>
+              {row.getValue('payee')}
+            </div>
+            {row.original.memo && (
+              <span
+                className="type-caption block truncate"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                {row.original.memo}
+              </span>
+            )}
+            {row.original.matchedRuleLabel && (
+              <span
+                className="type-caption block"
+                style={{ color: 'var(--color-text-secondary)' }}
+                data-testid="matched-rule-label"
+              >
+                {row.original.matchedRuleLabel}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: 'categoryName',
+      header: 'Category',
+      cell: ({ row }) => {
+        if (editingRowId === row.original.id && draft) {
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <Select
+                value={draft.category}
+                onValueChange={(val) => setDraft((d) => d && { ...d, category: val })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Uncategorized</SelectItem>
+                  {envelopes.map((e) => (
+                    <SelectItem key={e.id} value={String(e.id)}>
+                      {e.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        }
+        return (
+          <span
+            className="type-caption"
+            style={{
+              display: 'inline-block',
+              padding: '1px 7px',
+              borderRadius: '10px',
+              backgroundColor: row.original.isUncategorized
+                ? 'rgba(245, 168, 0, 0.12)'
+                : 'rgba(255, 255, 255, 0.05)',
+              color: row.original.isUncategorized
+                ? 'var(--color-amber)'
+                : 'var(--color-text-secondary)',
+            }}
+          >
+            {row.getValue('categoryName')}
+          </span>
+        );
+      },
+      enableSorting: false,
+    },
+    {
+      accessorKey: 'isCleared',
+      header: 'Cleared',
+      cell: ({ row }) => (
+        <span
+          className="flex justify-center select-none"
+          style={{
+            cursor: isReadOnly ? 'default' : 'pointer',
+            color: 'var(--color-text-secondary)',
+            fontSize: row.original.isCleared ? '13px' : '11px',
+            opacity: row.original.isCleared ? 0.7 : 0.3,
+          }}
+          onClick={(e) => handleClearedToggle(row.original.id, row.original.isCleared, e)}
+          aria-label={row.original.isCleared ? 'Mark uncleared' : 'Mark cleared'}
+        >
+          {row.original.isCleared ? '✓' : '○'}
+        </span>
+      ),
+      enableSorting: false,
+    },
+    {
+      accessorKey: 'amountCents',
+      header: ({ column }) => (
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-mr-2"
+            onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          >
+            Amount
+            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+          </Button>
+        </div>
+      ),
+      cell: ({ row }) => {
+        if (editingRowId === row.original.id && draft) {
+          return (
+            <div
+              className="flex flex-col gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Input
+                value={draft.amountStr}
+                onChange={(e) => {
+                  setDraft((d) => d && { ...d, amountStr: e.target.value });
+                  setDraftError(null);
+                }}
+                style={{
+                  textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums',
+                  minWidth: '90px',
+                }}
+              />
+              {draftError && (
+                <span className="type-caption" style={{ color: 'var(--color-red)' }}>
+                  {draftError}
+                </span>
+              )}
+            </div>
+          );
+        }
+        const amount = row.getValue('amountCents') as number;
+        const color = amount >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
+        return (
+          <div
+            className="text-right"
+            style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color }}
+          >
+            {formatCurrency(amount)}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: () => null,
+      cell: ({ row }) => {
+        if (editingRowId !== row.original.id) return null;
+        return (
+          <div
+            className="flex items-center gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button size="sm" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? '…' : 'Save'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleCancel} disabled={isSaving}>
+              ×
+            </Button>
+          </div>
+        );
+      },
+      enableSorting: false,
+    },
+  ];
 
   const table = useReactTable({
     data: tableData,
@@ -338,11 +535,6 @@ export default function LedgerView() {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
-
-  function handleRowSelect(id: number) {
-    setSelectedId((prev) => (prev === id ? null : id));
-    setShowAddForm(false);
-  }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -411,10 +603,7 @@ export default function LedgerView() {
           <OFXImporter />
           <Button
             variant="outline"
-            onClick={() => {
-              setShowAddForm(true);
-              setSelectedId(null);
-            }}
+            onClick={() => setShowAddForm(true)}
             disabled={showAddForm || isReadOnly}
           >
             Add Transaction
@@ -430,86 +619,76 @@ export default function LedgerView() {
         />
       )}
 
-      {/* Workspace: table + detail pane */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
-          {transactions.length === 0 ? (
-            <div
-              className="flex items-center justify-center h-full type-body"
-              style={{ color: 'var(--color-text-secondary)' }}
+      {/* Table */}
+      <div className="flex-1 overflow-y-auto">
+        {transactions.length === 0 ? (
+          <div
+            className="flex items-center justify-center h-full type-body"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            No transactions yet — use Import OFX to get started
+          </div>
+        ) : (
+          <Table aria-label="Transactions">
+            <TableHeader
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 1,
+                backgroundColor: 'var(--color-bg-app)',
+              }}
             >
-              No transactions yet — use Import OFX to get started
-            </div>
-          ) : (
-            <Table aria-label="Transactions">
-              <TableHeader
-                style={{
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 1,
-                  backgroundColor: 'var(--color-bg-app)',
-                }}
-              >
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        className="type-label"
-                        style={{ color: 'var(--color-text-secondary)' }}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className="text-center type-body"
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead
+                      key={header.id}
+                      className="type-label"
                       style={{ color: 'var(--color-text-secondary)' }}
                     >
-                      No transactions match your filters
-                    </TableCell>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {table.getRowModel().rows.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="text-center type-body"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    No transactions match your filters
+                  </TableCell>
+                </TableRow>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    onClick={() => handleRowClick(row.original)}
+                    className="type-body cursor-pointer"
+                    style={{
+                      opacity: row.original.isCleared ? undefined : 0.55,
+                      backgroundColor:
+                        editingRowId === row.original.id
+                          ? 'rgba(255, 255, 255, 0.05)'
+                          : undefined,
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
                   </TableRow>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      onClick={() => handleRowSelect(row.original.id)}
-                      className="type-body cursor-pointer"
-                      style={{
-                        opacity: row.original.isCleared ? undefined : 0.55,
-                        backgroundColor:
-                          selectedId === row.original.id
-                            ? 'rgba(255, 255, 255, 0.05)'
-                            : undefined,
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-
-        {selectedTransaction && (
-          <TransactionDetailPanel
-            transaction={selectedTransaction}
-            envelopes={envelopes}
-            onClose={() => setSelectedId(null)}
-          />
+                ))
+              )}
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>

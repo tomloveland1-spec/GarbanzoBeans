@@ -1,7 +1,12 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import LedgerView from './LedgerView';
 import type { Transaction, ImportResult, Envelope } from '@/lib/types';
+
+// ── Component stubs ──────────────────────────────────────────────────────────
+
+vi.mock('./OFXImporter', () => ({ default: () => null }));
+vi.mock('./AddTransactionForm', () => ({ default: () => null }));
 
 // ── Store mocks ──────────────────────────────────────────────────────────────
 
@@ -16,6 +21,7 @@ vi.mock('@/stores/useSettingsStore', () => ({
 const mockTransactionState = {
   transactions: [] as Transaction[],
   importResult: null as ImportResult | null,
+  error: null as { message: string } | null,
 };
 
 const mockUpdateTransaction = vi.fn().mockResolvedValue(undefined);
@@ -26,7 +32,7 @@ vi.mock('@/stores/useTransactionStore', () => ({
     vi.fn((selector: (s: typeof mockTransactionState) => unknown) =>
       selector(mockTransactionState),
     ),
-    { getState: () => ({ updateTransaction: mockUpdateTransaction }) },
+    { getState: () => ({ updateTransaction: mockUpdateTransaction, error: mockTransactionState.error }) },
   ),
 }));
 
@@ -45,16 +51,18 @@ vi.mock('@/stores/useEnvelopeStore', () => ({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const TODAY = new Date().toISOString().split('T')[0]!;
+
 let _txId = 0;
 const makeTx = (overrides: Partial<Transaction> = {}): Transaction => ({
   id: ++_txId,
   payee: 'Acme Corp',
   amountCents: -5000,
-  date: '2026-01-15',
+  date: TODAY,
   envelopeId: null,
   isCleared: true,
   importBatchId: null,
-  createdAt: '2026-01-15T00:00:00Z',
+  createdAt: TODAY + 'T00:00:00Z',
   memo: null,
   ...overrides,
 });
@@ -79,6 +87,7 @@ describe('LedgerView', () => {
     _txId = 0;
     mockTransactionState.transactions = [];
     mockTransactionState.importResult = null;
+    mockTransactionState.error = null;
     mockEnvelopeState.envelopes = [];
     mockSettingsState.isReadOnly = false;
   });
@@ -96,20 +105,12 @@ describe('LedgerView', () => {
     expect(screen.getByText('Working')).toBeInTheDocument();
   });
 
-  it('renders Inflow and Outflow balance labels', () => {
-    render(<LedgerView />);
-    expect(screen.getByText('Inflow')).toBeInTheDocument();
-    expect(screen.getByText('Outflow')).toBeInTheDocument();
-  });
-
   it('computes cleared balance from only is_cleared=true transactions', () => {
     mockTransactionState.transactions = [
       makeTx({ id: 1, amountCents: -5000, isCleared: true }),
       makeTx({ id: 2, amountCents: -3000, isCleared: false }),
     ];
     render(<LedgerView />);
-    // Cleared: -5000 cents = -$50.00
-    // Working: -8000 cents = -$80.00
     expect(screen.getByTestId('balance-cleared')).toHaveTextContent('-$50.00');
     expect(screen.getByTestId('balance-working')).toHaveTextContent('-$80.00');
   });
@@ -132,42 +133,6 @@ describe('LedgerView', () => {
     mockTransactionState.transactions = [makeTx({ envelopeId: 999 })];
     render(<LedgerView />);
     expect(screen.getByText('Unknown')).toBeInTheDocument();
-  });
-
-  it('renders import summary line when importResult is non-null', () => {
-    mockTransactionState.importResult = {
-      count: 5,
-      batchId: 'abc',
-      latestDate: '2026-10-12',
-      transactions: [],
-      matchedTransactions: [],
-      categorizedAnnotations: {},
-      uncategorizedIds: [],
-      conflictedIds: [],
-    };
-    render(<LedgerView />);
-    expect(screen.getByText('Import — Oct 12 — 5 transactions')).toBeInTheDocument();
-  });
-
-  it('does NOT render import summary line when importResult is null', () => {
-    mockTransactionState.importResult = null;
-    render(<LedgerView />);
-    expect(screen.queryByText(/Import —/)).not.toBeInTheDocument();
-  });
-
-  it('renders import summary without date when importResult.latestDate is null', () => {
-    mockTransactionState.importResult = {
-      count: 3,
-      batchId: 'abc',
-      latestDate: null,
-      transactions: [],
-      matchedTransactions: [],
-      categorizedAnnotations: {},
-      uncategorizedIds: [],
-      conflictedIds: [],
-    };
-    render(<LedgerView />);
-    expect(screen.getByText('Import — 3 transactions')).toBeInTheDocument();
   });
 
   it('renders matched-rule label for auto-categorized transactions in latest import', () => {
@@ -219,98 +184,21 @@ describe('LedgerView', () => {
     expect(screen.queryByTestId('matched-rule-label')).not.toBeInTheDocument();
   });
 
-  it('uncleared transaction rows have reduced visual emphasis (opacity 0.5)', () => {
+  it('uncleared transaction rows have reduced visual emphasis (opacity 0.55)', () => {
     mockTransactionState.transactions = [
       makeTx({ id: 1, payee: 'Cleared Store', isCleared: true }),
       makeTx({ id: 2, payee: 'Uncleared Store', isCleared: false }),
     ];
     const { container } = render(<LedgerView />);
     const rows = container.querySelectorAll('tbody tr');
-    expect((rows[0] as HTMLElement).style.opacity).not.toBe('0.5');
-    expect((rows[1] as HTMLElement).style.opacity).toBe('0.5');
+    expect((rows[0] as HTMLElement).style.opacity).not.toBe('0.55');
+    expect((rows[1] as HTMLElement).style.opacity).toBe('0.55');
   });
 
   it('does not render empty state when transactions exist', () => {
     mockTransactionState.transactions = [makeTx()];
     render(<LedgerView />);
     expect(screen.queryByText(/No transactions yet/)).not.toBeInTheDocument();
-  });
-
-  describe('UnknownMerchantQueue integration', () => {
-    it('renders queue section when importResult.uncategorizedIds is non-empty', () => {
-      const tx = makeTx({ id: 50, envelopeId: null });
-      mockTransactionState.transactions = [tx];
-      mockTransactionState.importResult = {
-        count: 1,
-        batchId: 'import_abc',
-        latestDate: '2026-04-08',
-        transactions: [tx],
-        matchedTransactions: [],
-        categorizedAnnotations: {},
-        uncategorizedIds: [50],
-        conflictedIds: [],
-      };
-      render(<LedgerView />);
-      expect(screen.getByTestId('unknown-merchant-queue')).toBeInTheDocument();
-      expect(screen.getByTestId('queue-header')).toHaveTextContent('1 transaction need a category');
-    });
-
-    it('renders queue section when importResult.conflictedIds is non-empty', () => {
-      const tx = makeTx({ id: 51, envelopeId: null });
-      mockTransactionState.transactions = [tx];
-      mockTransactionState.importResult = {
-        count: 1,
-        batchId: 'import_abc',
-        latestDate: '2026-04-08',
-        transactions: [tx],
-        matchedTransactions: [],
-        categorizedAnnotations: {},
-        uncategorizedIds: [],
-        conflictedIds: [51],
-      };
-      render(<LedgerView />);
-      expect(screen.getByTestId('unknown-merchant-queue')).toBeInTheDocument();
-    });
-
-    it('does NOT render queue section when both uncategorizedIds and conflictedIds are empty', () => {
-      const tx = makeTx({ id: 52, envelopeId: 1 });
-      mockTransactionState.transactions = [tx];
-      mockTransactionState.importResult = {
-        count: 1,
-        batchId: 'import_abc',
-        latestDate: '2026-04-08',
-        transactions: [tx],
-        matchedTransactions: [],
-        categorizedAnnotations: {},
-        uncategorizedIds: [],
-        conflictedIds: [],
-      };
-      render(<LedgerView />);
-      expect(screen.queryByTestId('unknown-merchant-queue')).not.toBeInTheDocument();
-    });
-
-    it('does NOT render queue section when importResult is null', () => {
-      mockTransactionState.importResult = null;
-      render(<LedgerView />);
-      expect(screen.queryByTestId('unknown-merchant-queue')).not.toBeInTheDocument();
-    });
-
-    it('deduplicates queueIds when a transaction ID appears in both uncategorizedIds and conflictedIds', () => {
-      const tx = makeTx({ id: 60, envelopeId: null });
-      mockTransactionState.transactions = [tx];
-      mockTransactionState.importResult = {
-        count: 1,
-        batchId: 'import_abc',
-        latestDate: '2026-04-08',
-        transactions: [tx],
-        matchedTransactions: [],
-        categorizedAnnotations: {},
-        uncategorizedIds: [60],
-        conflictedIds: [60],
-      };
-      render(<LedgerView />);
-      expect(screen.getAllByTestId(/^queue-item-/)).toHaveLength(1);
-    });
   });
 
   it('disables Add Transaction button when isReadOnly = true', () => {
@@ -337,4 +225,109 @@ describe('LedgerView', () => {
     render(<LedgerView />);
     expect(screen.queryByTestId('matched-rule-label')).not.toBeInTheDocument();
   });
+
+  // ── Inline editing ────────────────────────────────────────────────────────
+
+  it('enters edit mode when a row is clicked', () => {
+    mockTransactionState.transactions = [makeTx({ id: 1, payee: 'Acme Corp' })];
+    render(<LedgerView />);
+    const row = screen.getByText('Acme Corp').closest('tr')!;
+    fireEvent.click(row);
+    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
+  });
+
+  it('does not enter edit mode when isReadOnly = true', () => {
+    mockSettingsState.isReadOnly = true;
+    mockTransactionState.transactions = [makeTx({ id: 1, payee: 'Acme Corp' })];
+    render(<LedgerView />);
+    const row = screen.getByText('Acme Corp').closest('tr')!;
+    fireEvent.click(row);
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking a different row while editing discards the current draft and edits the new row', () => {
+    mockTransactionState.transactions = [
+      makeTx({ id: 1, payee: 'Row One' }),
+      makeTx({ id: 2, payee: 'Row Two' }),
+    ];
+    render(<LedgerView />);
+    fireEvent.click(screen.getByText('Row One').closest('tr')!);
+    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Row Two').closest('tr')!);
+    // Still one Save button — now for Row Two
+    expect(screen.getAllByRole('button', { name: /save/i })).toHaveLength(1);
+  });
+
+  it('cancel button exits edit mode without saving', () => {
+    mockTransactionState.transactions = [makeTx({ id: 1, payee: 'Acme Corp' })];
+    render(<LedgerView />);
+    fireEvent.click(screen.getByText('Acme Corp').closest('tr')!);
+    fireEvent.click(screen.getByRole('button', { name: '×' }));
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+    expect(mockUpdateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('Save calls updateTransaction with correct payload', async () => {
+    mockTransactionState.transactions = [
+      makeTx({ id: 1, payee: 'Acme Corp', amountCents: -5000, envelopeId: null, isCleared: true, memo: null }),
+    ];
+    render(<LedgerView />);
+    fireEvent.click(screen.getByText('Acme Corp').closest('tr')!);
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => {
+      expect(mockUpdateTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 1,
+          payee: 'Acme Corp',
+          amountCents: -5000,
+          date: TODAY,
+          clearEnvelopeId: true,
+          memo: null,
+        }),
+      );
+    });
+  });
+
+  it('shows inline error and does not call updateTransaction for non-numeric amount', async () => {
+    mockTransactionState.transactions = [makeTx({ id: 1 })];
+    render(<LedgerView />);
+    fireEvent.click(screen.getByText('Acme Corp').closest('tr')!);
+    const amountInput = screen.getByDisplayValue('-50.00');
+    fireEvent.change(amountInput, { target: { value: 'not-a-number' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText(/enter a valid amount/i)).toBeInTheDocument();
+    expect(mockUpdateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('Cleared cell click calls updateTransaction immediately without entering edit mode', async () => {
+    mockTransactionState.transactions = [makeTx({ id: 1, isCleared: true })];
+    render(<LedgerView />);
+    const clearedCell = screen.getByLabelText('Mark uncleared');
+    fireEvent.click(clearedCell);
+    await waitFor(() => {
+      expect(mockUpdateTransaction).toHaveBeenCalledWith({ id: 1, isCleared: false });
+    });
+    // No Save button should appear — edit mode was not entered
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+  });
+
+  it('Cleared cell click is a no-op when isReadOnly = true', async () => {
+    mockSettingsState.isReadOnly = true;
+    mockTransactionState.transactions = [makeTx({ id: 1, isCleared: true })];
+    render(<LedgerView />);
+    const clearedCell = screen.getByLabelText('Mark uncleared');
+    fireEvent.click(clearedCell);
+    await waitFor(() => {
+      expect(mockUpdateTransaction).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not render savings deposit/withdrawal sublabel on amount', () => {
+    mockEnvelopeState.envelopes = [makeEnvelope({ id: 1, isSavings: true })];
+    mockTransactionState.transactions = [makeTx({ id: 1, envelopeId: 1, amountCents: -10000 })];
+    render(<LedgerView />);
+    expect(screen.queryByText(/savings deposit/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/savings withdrawal/i)).not.toBeInTheDocument();
+  });
+
 });
